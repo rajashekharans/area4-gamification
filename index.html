@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>i-Differentiate Area 4</title>
+<style>
+/* ============================================================
+   Design tokens — the ONLY place raw style values may appear.
+   Values per docs/superpowers/specs/2026-06-11-area4-gamification-design.md A1-A3.
+   ============================================================ */
+:root {
+  /* A1 — color tokens */
+  --color-primary: #004165;      /* Loyal Blue */
+  --color-accent: #772432;       /* True Maroon */
+  --color-gray: #A9B2B1;         /* TM Cool Gray */
+  --color-yellow: #F2DF74;       /* TM Happy Yellow */
+  --color-bg: #F4F6F8;
+  --color-surface: #FFFFFF;
+  --color-text: #1A2B33;
+  --color-text-muted: #5B6B73;
+  --color-success: #1E7B4F;
+  --color-error: #B3261E;
+  --color-gold: #D4A017;
+  --color-silver: #8E979E;
+  --color-bronze: #B08D57;
+
+  /* A2 — typography tokens */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-size-2xl: 28px;
+
+  /* A3 — spacing scale + radii */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+}
+
+/* Base / reset */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ============================================================
+   A4 Kit components (in kit order)
+   ============================================================ */
+
+/* AppShell */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-primary);
+  color: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
+}
+.app-header h1 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+}
+.app-header .subtitle {
+  font-size: var(--font-size-sm);
+  opacity: 0.85;
+}
+main#screen {
+  padding: var(--space-4);
+  padding-bottom: calc(var(--space-6) * 3); /* clearance for fixed tab bar */
+}
+.screen-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+}
+.screen-note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  background: var(--color-surface);
+}
+.tab-bar button {
+  flex: 1;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  padding: var(--space-4) var(--space-1); /* keeps touch target >= B5 minimum */
+}
+.tab-bar button.active {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+/* ClubCard (minimal Phase 1 form — medals/breakdowns arrive in Phase 2) */
+.club-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-surface);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+.club-card .club-name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+.club-card .club-total {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-6) * 3);
+  transform: translateX(-50%);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  z-index: 20;
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>i-Differentiate</h1>
+  <div class="subtitle">Area 4 &middot; District 90</div>
+</header>
+
+<main id="screen"></main>
+
+<nav class="tab-bar">
+  <button data-route="leaderboard">Leaderboard</button>
+  <button data-route="tmi">TMI</button>
+  <button data-route="manual">Manual</button>
+  <button data-route="trends">Trends</button>
+  <button data-route="settings">Settings</button>
+</nav>
+
+<script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+"use strict";
+(function () {
+
+// === CORE ===
+// Pure core: no DOM access. Exposed as window.A4 for tests.html.
+
+window.A4 = {};
+
+// === UI ===
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function screenStub(title, note) {
+  return '<h2 class="screen-title">' + esc(title) + '</h2>' +
+         '<p class="screen-note">' + esc(note) + '</p>';
+}
+
+function renderLeaderboard(main) {
+  main.innerHTML = screenStub("Leaderboard", "Club scores will appear here.");
+}
+
+function renderTmi(main) {
+  main.innerHTML = screenStub("TMI Data", "TMI dashboard data entry arrives in Phase 3.");
+}
+
+function renderManual(main) {
+  main.innerHTML = screenStub("Manual Entry", "Awards and club health entry arrives in Phase 3.");
+}
+
+function renderTrends(main) {
+  main.innerHTML = screenStub("Trends", "Weekly score trends arrive in Phase 4.");
+}
+
+function renderSettings(main) {
+  main.innerHTML = screenStub("Settings", "Weights and club config arrive in Phase 4.");
+}
+
+var SCREENS = {
+  leaderboard: renderLeaderboard,
+  tmi: renderTmi,
+  manual: renderManual,
+  trends: renderTrends,
+  settings: renderSettings
+};
+
+function currentRoute() {
+  var route = (location.hash || "#leaderboard").slice(1);
+  return Object.prototype.hasOwnProperty.call(SCREENS, route) ? route : "leaderboard";
+}
+
+function render() {
+  var route = currentRoute();
+  SCREENS[route](document.getElementById("screen"));
+  document.querySelectorAll(".tab-bar button").forEach(function (btn) {
+    btn.classList.toggle("active", btn.dataset.route === route);
+  });
+}
+
+document.querySelectorAll(".tab-bar button").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    location.hash = "#" + btn.dataset.route;
+  });
+});
+
+window.addEventListener("hashchange", render);
+render();
+
+}());
+</script>
+</body>
+</html>
