@@ -175,9 +175,129 @@ main#screen {
 // === CORE ===
 // Pure core: no DOM access. Exposed as window.A4 for tests.html.
 
-window.A4 = {};
+var STORAGE_KEY = "idiff-area4-v1";
+
+var DEFAULT_STATE = {
+  version: 1,
+  config: {
+    district: 90,
+    area: 4,
+    programYear: "2025-2026",
+    clubs: [
+      { id: "marsden-park", name: "Marsden Park Toastmasters", clubNumber: 28679342 },
+      { id: "quakers-hill", name: "Quakers Hill Toastmasters", clubNumber: 9448 },
+      { id: "prospect-phoenix", name: "Prospect Phoenix Toastmasters", clubNumber: null },
+      { id: "blacktown-city", name: "Blacktown City Toastmasters", clubNumber: 3378 },
+      { id: "rooty-hill", name: "Rooty Hill Toastmasters", clubNumber: 9627 },
+      { id: "holroyd", name: "Holroyd Toastmasters", clubNumber: 7851 }
+    ]
+  },
+  // 21 keys: 19 workbook weights + 2 caps the workbook hardcodes in formulas.
+  weights: {
+    dcpGoal: 5, distD: 10, distS: 15, distP: 25,
+    memberGrowth: 2, memberBonus20: 5,
+    duesOnTime: 5, officerList: 5, cotRound: 5,
+    d90Award: 5, tripleCrown: 5, contestArea: 3, contestDivision: 5, contestDistrict: 10,
+    attendance75: 5, attendance50: 3, perGuest: 1, guestCap: 10,
+    perConversion: 5, perMeeting: 1, meetingCap: 5
+  },
+  tmi: {
+    "marsden-park":     { base: 18, current: 18, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
+    "quakers-hill":     { base: 22, current: 22, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
+    "prospect-phoenix": { base: 15, current: 15, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
+    "blacktown-city":   { base: 20, current: 20, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
+    "rooty-hill":       { base: 14, current: 14, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
+    "holroyd":          { base: 16, current: 16, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 }
+  },
+  awards: {
+    "marsden-park":     { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 },
+    "quakers-hill":     { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 },
+    "prospect-phoenix": { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 },
+    "blacktown-city":   { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 },
+    "rooty-hill":       { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 },
+    "holroyd":          { smedley: 0, talkUp: 0, beatTheClock: 0, tripleCrowns: 0, areaWins: 0, divWins: 0, distWins: 0 }
+  },
+  health: {
+    "marsden-park":     { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
+    "quakers-hill":     { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
+    "prospect-phoenix": { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
+    "blacktown-city":   { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
+    "rooty-hill":       { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
+    "holroyd":          { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 }
+  },
+  snapshots: [],
+  lastTmiSync: null
+};
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// Deep-merge source OVER target (arrays replaced wholesale), so saves from
+// older schema versions never lose newly added default fields.
+function deepMerge(target, source) {
+  if (!isPlainObject(source)) return target;
+  Object.keys(source).forEach(function (key) {
+    if (isPlainObject(source[key]) && isPlainObject(target[key])) {
+      deepMerge(target[key], source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  });
+  return target;
+}
+
+function loadState() {
+  var fresh = structuredClone(DEFAULT_STATE);
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return fresh;
+    return deepMerge(fresh, JSON.parse(raw));
+  } catch (e) {
+    // Missing storage (no DOM), corrupted JSON, or hand-edited garbage:
+    // degrade to defaults, never crash (threat T-01-01).
+    return fresh;
+  }
+}
+
+function saveState(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    // Quota exceeded / private mode (threat T-01-02): warn via the UI-region
+    // Toast through a guarded reference so CORE stays evaluable without a DOM.
+    if (window.A4 && typeof window.A4.toast === "function") {
+      window.A4.toast("Storage unavailable — changes will not persist after this page closes.");
+    }
+  }
+}
+
+window.A4 = {
+  DEFAULT_STATE: DEFAULT_STATE,
+  loadState: loadState,
+  saveState: saveState
+};
 
 // === UI ===
+
+function showToast(msg) {
+  var el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 4000);
+}
+window.A4.toast = showToast;
+
+var state = loadState();
+
+// Single mutation path: mutate -> persist -> re-render.
+function update(fn) {
+  fn(state);
+  saveState(state);
+  render();
+}
+window.A4.update = update;
 
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -188,23 +308,23 @@ function screenStub(title, note) {
          '<p class="screen-note">' + esc(note) + '</p>';
 }
 
-function renderLeaderboard(main) {
+function renderLeaderboard(main, state) {
   main.innerHTML = screenStub("Leaderboard", "Club scores will appear here.");
 }
 
-function renderTmi(main) {
+function renderTmi(main, state) {
   main.innerHTML = screenStub("TMI Data", "TMI dashboard data entry arrives in Phase 3.");
 }
 
-function renderManual(main) {
+function renderManual(main, state) {
   main.innerHTML = screenStub("Manual Entry", "Awards and club health entry arrives in Phase 3.");
 }
 
-function renderTrends(main) {
+function renderTrends(main, state) {
   main.innerHTML = screenStub("Trends", "Weekly score trends arrive in Phase 4.");
 }
 
-function renderSettings(main) {
+function renderSettings(main, state) {
   main.innerHTML = screenStub("Settings", "Weights and club config arrive in Phase 4.");
 }
 
@@ -223,7 +343,7 @@ function currentRoute() {
 
 function render() {
   var route = currentRoute();
-  SCREENS[route](document.getElementById("screen"));
+  SCREENS[route](document.getElementById("screen"), state);
   document.querySelectorAll(".tab-bar button").forEach(function (btn) {
     btn.classList.toggle("active", btn.dataset.route === route);
   });
