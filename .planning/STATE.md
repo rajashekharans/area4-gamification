@@ -1,12 +1,12 @@
 ---
 gsd_state_version: '1.0'
-status: planning
+status: executing
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -21,27 +21,27 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 1 of 4 (Core: skeleton, state, scoring engine)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-06-11 — Project initialized from ingested locked specs; PROJECT.md, REQUIREMENTS.md, ROADMAP.md created
+Plan: 1 of 1 in current phase — EXECUTED (awaiting orchestrator verification before roadmap check-off)
+Status: Phase 1 executed — all 3 tasks committed, tests.html suite 32/32 green (headless node run)
+Last activity: 2026-06-11 — Executed 01-01-PLAN.md: app shell + tokens (1e1ca78), state/seed/persistence (a7aca83), scoring engine TDD RED (33dd839) → GREEN (c3b2b13); SUMMARY created
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 9 min
+- Total execution time: 0.15 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-core | 1 | 9 min | 9 min |
 
 **Recent Trend:**
-- Last 5 plans: none yet
+- Last 5 plans: 01-01 (9 min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -56,6 +56,12 @@ All 10 project decisions are LOCKED (from `docs/superpowers/specs/2026-06-11-are
 - DEC-design-tokens: no raw hex/px outside `:root`
 - DEC-localstorage-key: AppState under `idiff-area4-v1`, `version: 1`, deep-merge load, quota-safe save
 - DEC-scoring-formulas: replicate Excel workbook exactly; 21 weights/caps; Excel RANK tie semantics; tests.html parity
+
+Execution decisions (01-01, 2026-06-11):
+
+- movementVs no-snapshot shape locked: `{ scoreDelta: 0, rankDelta: null }` per club; rankDelta = previous rank − current rank (positive = moved up)
+- tests.html assertion set wrapped in `// === CASES ===` / `// === END CASES ===` markers so the identical cases run headlessly in node (no browser CLI available)
+- Screen renderers take `(mainEl, state)` per 01-core-phase-design.md dispatcher signature
 
 ### Pending Todos
 
@@ -74,5 +80,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-06-11
-Stopped at: Roadmap created; Phase 1 ready to plan (`/gsd-plan-phase 1`)
+Stopped at: Completed 01-01-PLAN.md (Phase 1 executed; orchestrator verification + roadmap check-off pending)
 Resume file: None
