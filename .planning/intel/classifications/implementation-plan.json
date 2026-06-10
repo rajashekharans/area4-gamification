@@ -1,0 +1,30 @@
+{
+  "path": "/Users/rajnaidu/Projects/area4-gamification/docs/superpowers/plans/2026-06-11-area4-gamification-plan.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "i-Differentiate Area 4 Implementation Plan",
+  "scope_summary": "Phased implementation plan for a single-file HTML gamification leaderboard replacing the Area 4 Excel tracker. Covers app shell with design tokens, state/scoring engine with workbook-parity tests, TMI CSV ingestion with CORS fallback, manual entry, snapshots/movement, trends charting, settings with weight editor, and JSON export/import. Built in vanilla ES2020 JS with localStorage persistence and Chart.js via CDN; subordinate to the design spec.",
+  "scope": [
+    "index.html app shell and design tokens",
+    "state module and localStorage persistence",
+    "scoring engine (computeScores, movementVs)",
+    "leaderboard, snapshots, movement",
+    "TMI CSV ingestion (parseCsv, mapTmiCsv)",
+    "manual entry (awards, club health, minutes extractor)",
+    "trends chart and snapshot history",
+    "settings, weight editor, export/import",
+    "tests.html parity suite",
+    "README and mobile polish"
+  ],
+  "cross_references": [
+    "docs/superpowers/specs/2026-06-11-area4-gamification-design.md",
+    "tests.html",
+    "sample-data/tmi-club-performance-sample.csv",
+    "README.md",
+    "index.html"
+  ],
+  "precedence": 1,
+  "locked": true,
+  "notes": "Type and precedence supplied by manifest; document is a phased implementation plan supplied as LOCKED context subordinate to the design spec."
+}

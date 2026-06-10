@@ -1,0 +1,38 @@
+{
+  "path": "/Users/rajnaidu/Projects/area4-gamification/docs/superpowers/specs/2026-06-11-area4-gamification-design.md",
+  "source_path": "/Users/rajnaidu/Projects/area4-gamification/docs/superpowers/specs/2026-06-11-area4-gamification-design.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "i-Differentiate Area 4 — Design Spec",
+  "summary": "Authoritative design spec for a single-file HTML club-performance leaderboard replacing the Area 4 gamification Excel workbook.",
+  "scope_summary": "Defines the complete UI design system (color/typography/spacing tokens, custom 'A4 Kit' component library, five-screen inventory) and architecture for a single-file, client-only HTML leaderboard app for Area 4, District 90 Toastmasters. Covers the localStorage data model, exact workbook-parity scoring engine formulas, TMI CSV integration boundaries, seed data, error handling, non-functional constraints, and testing approach.",
+  "scope": [
+    "index.html single-file web app",
+    "A4 Kit component library",
+    "UI design tokens (color, typography, spacing)",
+    "five-screen tabbed UI (Leaderboard, TMI Data, Manual Entry, Trends, Settings)",
+    "AppState localStorage data model (idiff-area4-v1)",
+    "scoring engine (computeScores)",
+    "TMI dashboards CSV import",
+    "Chart.js CDN integration with offline fallback",
+    "JSON export/import",
+    "weekly snapshots and movement tracking",
+    "seed data for six Area 4 clubs"
+  ],
+  "cross_references": [
+    "Area4_Gamification_Tracker.xlsx",
+    "sample-data/tmi-club-performance-sample.csv",
+    "README.md",
+    "tests.html"
+  ],
+  "cross_refs": [
+    "Area4_Gamification_Tracker.xlsx",
+    "sample-data/tmi-club-performance-sample.csv",
+    "README.md",
+    "tests.html"
+  ],
+  "locked": true,
+  "precedence": 0,
+  "notes": "Manifest declared type SPEC with precedence 0 and LOCKED status; content signals (data model, scoring formulas, integration boundaries, NFRs) strongly confirm SPEC. Also contains an autonomous-decisions table with ADR-like content, subsumed under the locked spec."
+}
