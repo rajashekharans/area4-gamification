@@ -272,10 +272,87 @@ function saveState(state) {
   }
 }
 
+// Scoring engine — pure, replicates the Area 4 Excel workbook exactly
+// (design.md B2). Returns { [clubId]: { breakdown, total, rank } }.
+function computeScores(state) {
+  var w = state.weights;
+  var result = {};
+
+  state.config.clubs.forEach(function (club) {
+    var t = state.tmi[club.id];
+    var a = state.awards[club.id];
+    var h = state.health[club.id];
+
+    var goalsMet = t.goals.reduce(function (sum, g) { return sum + (g ? 1 : 0); }, 0);
+    var dcp = goalsMet * w.dcpGoal;
+
+    var dist = t.distinguished === "P" ? w.distP
+             : t.distinguished === "S" ? w.distS
+             : t.distinguished === "D" ? w.distD
+             : 0;
+
+    var membership = (t.current - t.base) * w.memberGrowth +
+                     (t.current >= 20 ? w.memberBonus20 : 0);
+
+    var admin = (t.duesOct + t.duesApr) * w.duesOnTime +
+                t.officerList * w.officerList +
+                t.cotRounds * w.cotRound;
+
+    var awards = (a.smedley + a.talkUp + a.beatTheClock) * w.d90Award +
+                 a.tripleCrowns * w.tripleCrown +
+                 a.areaWins * w.contestArea +
+                 a.divWins * w.contestDivision +
+                 a.distWins * w.contestDistrict;
+
+    // attendancePct is a whole percent 0-100 (workbook fractions x100).
+    var health = (h.attendancePct >= 75 ? w.attendance75
+                : h.attendancePct >= 50 ? w.attendance50
+                : 0) +
+                 Math.min(h.guests * w.perGuest, w.guestCap) +
+                 h.conversions * w.perConversion +
+                 Math.min(h.meetings * w.perMeeting, w.meetingCap);
+
+    var breakdown = { dcp: dcp, dist: dist, membership: membership,
+                      admin: admin, awards: awards, health: health };
+    result[club.id] = {
+      breakdown: breakdown,
+      total: dcp + dist + membership + admin + awards + health,
+      rank: 0
+    };
+  });
+
+  // Excel RANK semantics: rank = 1 + count of strictly greater totals.
+  // Ties share rank; the next rank skips.
+  var ids = Object.keys(result);
+  ids.forEach(function (id) {
+    result[id].rank = 1 + ids.filter(function (other) {
+      return result[other].total > result[id].total;
+    }).length;
+  });
+
+  return result;
+}
+
+// Movement vs a stored snapshot (workbook Previous Score / Previous Rank).
+// rankDelta = previous rank - current rank (positive = moved up the board).
+// No snapshot (or club missing from it) -> { scoreDelta: 0, rankDelta: null }.
+function movementVs(snapshot, scores) {
+  var out = {};
+  Object.keys(scores).forEach(function (id) {
+    var prev = snapshot && snapshot.scores && snapshot.scores[id];
+    out[id] = prev
+      ? { scoreDelta: scores[id].total - prev.total, rankDelta: prev.rank - scores[id].rank }
+      : { scoreDelta: 0, rankDelta: null };
+  });
+  return out;
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
-  saveState: saveState
+  saveState: saveState,
+  computeScores: computeScores,
+  movementVs: movementVs
 };
 
 // === UI ===
@@ -309,7 +386,17 @@ function screenStub(title, note) {
 }
 
 function renderLeaderboard(main, state) {
-  main.innerHTML = screenStub("Leaderboard", "Club scores will appear here.");
+  var scores = computeScores(state);
+  var clubs = state.config.clubs.slice().sort(function (a, b) {
+    return scores[a.id].rank - scores[b.id].rank;
+  });
+  main.innerHTML = '<h2 class="screen-title">Leaderboard</h2>' +
+    clubs.map(function (club) {
+      return '<div class="club-card">' +
+        '<span class="club-name">' + esc(club.name) + '</span>' +
+        '<span class="club-total">' + scores[club.id].total + '</span>' +
+        '</div>';
+    }).join("");
 }
 
 function renderTmi(main, state) {
