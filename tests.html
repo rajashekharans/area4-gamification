@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>i-Differentiate Area 4 — workbook parity tests</title>
+<style>
+/* Local token block (only place raw values appear) — names reuse the design system. */
+:root {
+  --color-bg: #F4F6F8;
+  --color-surface: #FFFFFF;
+  --color-text: #1A2B33;
+  --color-success: #1E7B4F;
+  --color-error: #B3261E;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --radius-sm: 8px;
+}
+body {
+  margin: 0;
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+h1 { font-size: var(--font-size-lg); }
+.row {
+  background: var(--color-surface);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+}
+.pass { color: var(--color-success); }
+.fail { color: var(--color-error); }
+#summary { font-size: var(--font-size-base); font-weight: 700; margin-top: var(--space-4); }
+</style>
+</head>
+<body>
+<h1>i-Differentiate Area 4 — workbook parity suite</h1>
+<p>Serve over http (e.g. <code>python3 -m http.server</code>); fetch() of index.html is blocked from file://.</p>
+<div id="results"></div>
+<div id="summary"></div>
+
+<script>
+"use strict";
+
+// === CASES ===
+// Shared assertion set: driven by the browser harness below AND by the
+// headless node runner (which extracts this region by the CASES markers).
+function runCases(A4, assertEq) {
+  var DS = A4.DEFAULT_STATE;
+  function clone() { return structuredClone(DS); }
+
+  // --- Seed parity: all totals 0 except the >=20-member bonus ---
+  var seedScores = A4.computeScores(DS);
+  assertEq("seed: marsden-park total 0", seedScores["marsden-park"].total, 0);
+  assertEq("seed: quakers-hill total 5 (>=20 bonus)", seedScores["quakers-hill"].total, 5);
+  assertEq("seed: prospect-phoenix total 0", seedScores["prospect-phoenix"].total, 0);
+  assertEq("seed: blacktown-city total 5 (>=20 bonus)", seedScores["blacktown-city"].total, 5);
+  assertEq("seed: rooty-hill total 0", seedScores["rooty-hill"].total, 0);
+  assertEq("seed: holroyd total 0", seedScores["holroyd"].total, 0);
+  assertEq("seed: quakers-hill bonus lands in membership category",
+    seedScores["quakers-hill"].breakdown.membership, 5);
+
+  // --- Full-house club: six-category breakdown, total 176 ---
+  var s = clone();
+  s.tmi["blacktown-city"] = { base: 20, current: 24, goals: [1,1,1,1,1,1,1,1,1,1],
+    distinguished: "P", duesOct: 1, duesApr: 1, officerList: 1, cotRounds: 2 };
+  s.awards["blacktown-city"] = { smedley: 1, talkUp: 0, beatTheClock: 0,
+    tripleCrowns: 2, areaWins: 1, divWins: 1, distWins: 1 };
+  s.health["blacktown-city"] = { meetings: 7, attendancePct: 80, guests: 12, conversions: 2 };
+  var fh = A4.computeScores(s)["blacktown-city"];
+  assertEq("full house: breakdown 50/25/13/25/33/30", fh.breakdown,
+    { dcp: 50, dist: 25, membership: 13, admin: 25, awards: 33, health: 30 });
+  assertEq("full house: total 176", fh.total, 176);
+
+  // --- Attendance boundaries (whole percent; >=75 -> 5, >=50 -> 3, else 0) ---
+  [[75, 5], [74, 3], [50, 3], [49, 0]].forEach(function (c) {
+    var st = clone();
+    st.health["marsden-park"].attendancePct = c[0];
+    assertEq("attendance " + c[0] + " -> " + c[1],
+      A4.computeScores(st)["marsden-park"].breakdown.health, c[1]);
+  });
+
+  // --- Membership bonus boundary (current >= 20) ---
+  var s20 = clone();
+  s20.tmi["marsden-park"].base = 20;
+  s20.tmi["marsden-park"].current = 20;
+  assertEq("membership bonus: current 20 -> +5",
+    A4.computeScores(s20)["marsden-park"].breakdown.membership, 5);
+  var s19 = clone();
+  s19.tmi["marsden-park"].base = 19;
+  s19.tmi["marsden-park"].current = 19;
+  assertEq("membership bonus: current 19 -> none",
+    A4.computeScores(s19)["marsden-park"].breakdown.membership, 0);
+
+  // --- Guest cap: 12 guests x perGuest 1, capped at guestCap 10 ---
+  var sg = clone();
+  sg.health["marsden-park"].guests = 12;
+  assertEq("guest cap: 12 guests -> 10 points",
+    A4.computeScores(sg)["marsden-park"].breakdown.health, 10);
+
+  // --- Meeting cap: 7 meetings x perMeeting 1, capped at meetingCap 5 ---
+  var sm = clone();
+  sm.health["marsden-park"].meetings = 7;
+  assertEq("meeting cap: 7 meetings -> 5 points",
+    A4.computeScores(sm)["marsden-park"].breakdown.health, 5);
+
+  // --- Negative growth: current - base = -3 -> -6 membership points ---
+  var sn = clone();
+  sn.tmi["marsden-park"].current = 15; // base 18
+  assertEq("negative growth: -3 members -> membership -6",
+    A4.computeScores(sn)["marsden-park"].breakdown.membership, -6);
+
+  // --- Excel RANK tie semantics: rank = 1 + count strictly greater ---
+  assertEq("rank: quakers-hill shares rank 1", seedScores["quakers-hill"].rank, 1);
+  assertEq("rank: blacktown-city shares rank 1", seedScores["blacktown-city"].rank, 1);
+  assertEq("rank: next club skips to rank 3", seedScores["marsden-park"].rank, 3);
+  assertEq("rank: all other zero-total clubs at rank 3",
+    [seedScores["prospect-phoenix"].rank, seedScores["rooty-hill"].rank, seedScores["holroyd"].rank],
+    [3, 3, 3]);
+
+  // --- movementVs: no snapshot -> zero/null deltas per club ---
+  var mvNull = A4.movementVs(null, seedScores);
+  Object.keys(seedScores).forEach(function (id) {
+    assertEq("movementVs(null): " + id + " zero/null deltas",
+      mvNull[id], { scoreDelta: 0, rankDelta: null });
+  });
+
+  // --- movementVs against a constructed snapshot ---
+  var snap = { date: "2026-06-01", scores: seedScores };
+  var s2 = clone();
+  s2.tmi["marsden-park"].goals = [1,1,1,1,1,1,1,1,1,1]; // 50 pts -> rank 1
+  var mv = A4.movementVs(snap, A4.computeScores(s2));
+  assertEq("movementVs: marsden-park scoreDelta +50", mv["marsden-park"].scoreDelta, 50);
+  assertEq("movementVs: marsden-park rankDelta +2 (rank 3 -> 1)", mv["marsden-park"].rankDelta, 2);
+  assertEq("movementVs: quakers-hill scoreDelta 0", mv["quakers-hill"].scoreDelta, 0);
+  assertEq("movementVs: quakers-hill rankDelta -1 (rank 1 -> 2)", mv["quakers-hill"].rankDelta, -1);
+}
+// === END CASES ===
+
+(async function () {
+  var results = document.getElementById("results");
+  var summary = document.getElementById("summary");
+  var passed = 0;
+  var failed = 0;
+
+  function assertEq(name, actual, expected) {
+    var a = JSON.stringify(actual);
+    var e = JSON.stringify(expected);
+    var ok = a === e;
+    if (ok) { passed++; } else { failed++; }
+    var row = document.createElement("div");
+    row.className = "row " + (ok ? "pass" : "fail");
+    row.textContent = (ok ? "PASS " : "FAIL ") + name +
+      (ok ? "" : " — expected " + e + ", got " + a);
+    results.appendChild(row);
+  }
+
+  try {
+    var html = await (await fetch("index.html")).text();
+    var match = html.match(/\/\/ === CORE ===([\s\S]*?)\/\/ === UI ===/);
+    if (!match) throw new Error("CORE region markers not found in index.html");
+    var stubWindow = {};
+    new Function("window", '"use strict";' + match[1])(stubWindow);
+    runCases(stubWindow.A4, assertEq);
+  } catch (err) {
+    failed++;
+    var row = document.createElement("div");
+    row.className = "row fail";
+    row.textContent = "FAIL harness — " + err.message;
+    results.appendChild(row);
+  }
+
+  summary.className = failed === 0 ? "pass" : "fail";
+  summary.textContent = passed + " passed, " + failed + " failed";
+}());
+</script>
+</body>
+</html>
