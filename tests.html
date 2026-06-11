@@ -301,6 +301,87 @@ function runCases(A4, assertEq) {
   assertEq("extractMinutes: nothing found -> empty object",
     A4.extractMinutes("The committee discussed the agenda at length."), {});
 
+  // --- AI minutes engagement: per-club visitor tracking ---
+  assertEq("engagement: default slice exists for every club",
+    DS.config.clubs.map(function (club) {
+      return [club.id, !!(DS.engagement && DS.engagement[club.id])];
+    }),
+    [
+      ["marsden-park", true],
+      ["quakers-hill", true],
+      ["prospect-phoenix", true],
+      ["blacktown-city", true],
+      ["rooty-hill", true],
+      ["holroyd", true]
+    ]);
+
+  var ex1 = A4.applyMinutesExtraction(clone(), "marsden-park", {
+    extracted: {
+      attendancePct: 67,
+      meetings: 1,
+      guests: { count: 2, names: ["Jane Smith", "Alex Lee"] },
+      visitorsBecameMembers: ["Jane Smith"],
+      memberVisits: [{ memberName: "Raj Naidu", visitedClubName: "Blacktown City Toastmasters" }],
+      awards: [{ level: "area", name: "Area Evaluation Contest", recipientName: "Jane Smith" }],
+      eventParticipation: [{ level: "division", name: "Division Training", participantName: "Alex Lee" }]
+    }
+  }, "2026-06-11");
+  assertEq("engagement: apply updates club health from reviewed extraction",
+    ex1.health["marsden-park"],
+    { meetings: 1, attendancePct: 67, guests: 2, conversions: 0 });
+  assertEq("engagement: first visitor records include normalized name and became-member flag",
+    ex1.engagement["marsden-park"].visitors,
+    [
+      { name: "Jane Smith", normalizedName: "janesmith", firstSeenDate: "2026-06-11", lastSeenDate: "2026-06-11", visits: 1, becameMember: true },
+      { name: "Alex Lee", normalizedName: "alexlee", firstSeenDate: "2026-06-11", lastSeenDate: "2026-06-11", visits: 1, becameMember: false }
+    ]);
+  assertEq("engagement: member visits and events are appended to the selected club",
+    [ex1.engagement["marsden-park"].memberVisits, ex1.engagement["marsden-park"].events],
+    [
+      [{ memberName: "Raj Naidu", visitedClubName: "Blacktown City Toastmasters", date: "2026-06-11" }],
+      [
+        { level: "area", type: "award", name: "Area Evaluation Contest", personName: "Jane Smith", date: "2026-06-11" },
+        { level: "division", type: "participation", name: "Division Training", personName: "Alex Lee", date: "2026-06-11" }
+      ]
+    ]);
+
+  var ex2 = A4.applyMinutesExtraction(ex1, "marsden-park", {
+    extracted: {
+      guests: { count: 1, names: [" Jane  Smith "] },
+      visitorsBecameMembers: []
+    }
+  }, "2026-06-18");
+  assertEq("engagement: repeat visitor increments visits and keeps became-member flag",
+    ex2.engagement["marsden-park"].visitors[0],
+    { name: "Jane Smith", normalizedName: "janesmith", firstSeenDate: "2026-06-11", lastSeenDate: "2026-06-18", visits: 2, becameMember: true });
+
+  var ex3 = A4.applyMinutesExtraction(ex2, "quakers-hill", {
+    extracted: { guests: { count: 1, names: ["Jane Smith"] }, visitorsBecameMembers: [] }
+  }, "2026-06-18");
+  assertEq("engagement: same visitor name in another club remains separate",
+    [
+      ex3.engagement["marsden-park"].visitors[0].visits,
+      ex3.engagement["quakers-hill"].visitors[0]
+    ],
+    [
+      2,
+      { name: "Jane Smith", normalizedName: "janesmith", firstSeenDate: "2026-06-18", lastSeenDate: "2026-06-18", visits: 1, becameMember: false }
+    ]);
+
+  assertEq("engagement: applyMinutesExtraction does not mutate input state",
+    [ex1.engagement["marsden-park"].visitors[0].visits, ex2 !== ex1],
+    [1, true]);
+
+  assertEq("engagement: summary is per club",
+    [
+      A4.clubEngagementSummary(ex3, "marsden-park"),
+      A4.clubEngagementSummary(ex3, "quakers-hill")
+    ],
+    [
+      { uniqueVisitors: 2, becameMembers: 1, totalVisits: 3, memberVisits: 1, events: 2 },
+      { uniqueVisitors: 1, becameMembers: 0, totalVisits: 1, memberVisits: 0, events: 0 }
+    ]);
+
   // --- TMI Area 20 generated JSON mapping ---
   var gen = {
     schemaVersion: 1,

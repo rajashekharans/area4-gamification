@@ -569,6 +569,56 @@ main#screen {
   border-radius: var(--radius-sm);
   resize: vertical;
 }
+.text-input,
+.date-input,
+.file-input {
+  display: block;
+  width: 100%;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  padding: var(--space-2);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.date-input,
+.file-input {
+  min-height: calc(var(--space-6) + var(--space-3));
+  margin-bottom: var(--space-3);
+}
+.minutes-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.minutes-actions button { flex: 1; }
+.preview-list {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.preview-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+.preview-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.sheet-body {
+  max-height: calc(var(--shell-min-height) - calc(var(--space-6) * 5));
+  overflow-y: auto;
+}
+.review-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
 /* Extract-prefill flash: yellow fading back to normal, runs once. */
 @keyframes field-flash {
   from { background-color: var(--color-yellow); }
@@ -787,6 +837,14 @@ var DEFAULT_STATE = {
     "blacktown-city":   { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
     "rooty-hill":       { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 },
     "holroyd":          { meetings: 0, attendancePct: 0, guests: 0, conversions: 0 }
+  },
+  engagement: {
+    "marsden-park":     { visitors: [], memberVisits: [], events: [] },
+    "quakers-hill":     { visitors: [], memberVisits: [], events: [] },
+    "prospect-phoenix": { visitors: [], memberVisits: [], events: [] },
+    "blacktown-city":   { visitors: [], memberVisits: [], events: [] },
+    "rooty-hill":       { visitors: [], memberVisits: [], events: [] },
+    "holroyd":          { visitors: [], memberVisits: [], events: [] }
   },
   snapshots: [],
   lastTmiSync: null
@@ -1355,6 +1413,127 @@ function extractMinutes(text) {
   return out;
 }
 
+function cleanPersonName(name) {
+  return String(name === null || name === undefined ? "" : name).trim().replace(/\s+/g, " ");
+}
+
+function normalizePersonName(name) {
+  return cleanPersonName(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function ensureEngagementRecord(state, clubId) {
+  if (!state.engagement) state.engagement = {};
+  if (!state.engagement[clubId]) {
+    state.engagement[clubId] = { visitors: [], memberVisits: [], events: [] };
+  }
+  if (!Array.isArray(state.engagement[clubId].visitors)) state.engagement[clubId].visitors = [];
+  if (!Array.isArray(state.engagement[clubId].memberVisits)) state.engagement[clubId].memberVisits = [];
+  if (!Array.isArray(state.engagement[clubId].events)) state.engagement[clubId].events = [];
+  return state.engagement[clubId];
+}
+
+function applyMinutesExtraction(state, clubId, extraction, date) {
+  var next = structuredClone(state);
+  var extracted = extraction && extraction.extracted ? extraction.extracted : {};
+  var meetingDate = String(date || "");
+  var health = next.health[clubId];
+  var engagement = ensureEngagementRecord(next, clubId);
+  var guests = extracted.guests && typeof extracted.guests === "object" ? extracted.guests : {};
+
+  if (health) {
+    if (typeof extracted.attendancePct === "number" && isFinite(extracted.attendancePct)) {
+      health.attendancePct = Math.min(100, Math.max(0, Math.round(extracted.attendancePct)));
+    }
+    if (typeof extracted.meetings === "number" && isFinite(extracted.meetings)) {
+      health.meetings = Math.max(0, Math.round(extracted.meetings));
+    }
+    if (typeof guests.count === "number" && isFinite(guests.count)) {
+      health.guests = Math.max(0, Math.round(guests.count));
+    }
+  }
+
+  var becameMember = {};
+  (Array.isArray(extracted.visitorsBecameMembers) ? extracted.visitorsBecameMembers : [])
+    .forEach(function (name) {
+      var norm = normalizePersonName(name);
+      if (norm) becameMember[norm] = true;
+    });
+
+  (Array.isArray(guests.names) ? guests.names : []).forEach(function (rawName) {
+    var name = cleanPersonName(rawName);
+    var normalizedName = normalizePersonName(name);
+    if (!normalizedName) return;
+    var existing = engagement.visitors.filter(function (v) {
+      return v.normalizedName === normalizedName;
+    })[0];
+    if (existing) {
+      existing.name = existing.name || name;
+      existing.lastSeenDate = meetingDate || existing.lastSeenDate;
+      existing.visits = Math.max(0, Number(existing.visits) || 0) + 1;
+      existing.becameMember = !!(existing.becameMember || becameMember[normalizedName]);
+    } else {
+      engagement.visitors.push({
+        name: name,
+        normalizedName: normalizedName,
+        firstSeenDate: meetingDate,
+        lastSeenDate: meetingDate,
+        visits: 1,
+        becameMember: !!becameMember[normalizedName]
+      });
+    }
+  });
+
+  (Array.isArray(extracted.memberVisits) ? extracted.memberVisits : []).forEach(function (visit) {
+    if (!visit) return;
+    var memberName = cleanPersonName(visit.memberName);
+    var visitedClubName = String(visit.visitedClubName || "").trim();
+    if (!memberName || !visitedClubName) return;
+    engagement.memberVisits.push({
+      memberName: memberName,
+      visitedClubName: visitedClubName,
+      date: meetingDate
+    });
+  });
+
+  (Array.isArray(extracted.awards) ? extracted.awards : []).forEach(function (award) {
+    if (!award) return;
+    engagement.events.push({
+      level: String(award.level || "").toLowerCase(),
+      type: "award",
+      name: String(award.name || "").trim(),
+      personName: cleanPersonName(award.recipientName),
+      date: meetingDate
+    });
+  });
+
+  (Array.isArray(extracted.eventParticipation) ? extracted.eventParticipation : []).forEach(function (event) {
+    if (!event) return;
+    engagement.events.push({
+      level: String(event.level || "").toLowerCase(),
+      type: "participation",
+      name: String(event.name || "").trim(),
+      personName: cleanPersonName(event.participantName),
+      date: meetingDate
+    });
+  });
+
+  return next;
+}
+
+function clubEngagementSummary(state, clubId) {
+  var engagement = state.engagement && state.engagement[clubId];
+  var visitors = engagement && Array.isArray(engagement.visitors) ? engagement.visitors : [];
+  var memberVisits = engagement && Array.isArray(engagement.memberVisits) ? engagement.memberVisits : [];
+  var events = engagement && Array.isArray(engagement.events) ? engagement.events : [];
+  return {
+    uniqueVisitors: visitors.length,
+    becameMembers: visitors.filter(function (v) { return !!v.becameMember; }).length,
+    totalVisits: visitors.reduce(function (sum, v) { return sum + (Number(v.visits) || 0); }, 0),
+    memberVisits: memberVisits.length,
+    events: events.length
+  };
+}
+
 // ---- Phase 4: backup-import validation (pure, DOM-free — design B4) ----
 // Schema gate for the Settings JSON import. Checks in contract order:
 // plain object, version === 1, config.clubs (array, length >= 1, string
@@ -1418,6 +1597,10 @@ window.A4 = {
   validateGeneratedTmi: validateGeneratedTmi,
   mapGeneratedTmi: mapGeneratedTmi,
   extractMinutes: extractMinutes,
+  cleanPersonName: cleanPersonName,
+  normalizePersonName: normalizePersonName,
+  applyMinutesExtraction: applyMinutesExtraction,
+  clubEngagementSummary: clubEngagementSummary,
   validateImport: validateImport
 };
 
@@ -1477,6 +1660,10 @@ window.A4.update = update;
 
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escAttr(s) {
+  return esc(s).replace(/"/g, "&quot;");
 }
 
 // UI-local accordion state (NOT persisted) so full re-renders keep the open card.
@@ -2076,10 +2263,155 @@ var HEALTH_LABELS = {
   meetings: "Meetings held"
 };
 
+function selectedClub(state) {
+  return state.config.clubs.filter(function (club) { return club.id === selectedClubId; })[0];
+}
+
+function extractionMeetingDate(result) {
+  return (result && result.source && result.source.meetingDate) || localToday();
+}
+
+function visitorStatus(state, clubId, name) {
+  var norm = normalizePersonName(name);
+  var engagement = state.engagement && state.engagement[clubId];
+  var existing = engagement && engagement.visitors && engagement.visitors.filter(function (v) {
+    return v.normalizedName === norm;
+  })[0];
+  if (!existing) return "new";
+  return "repeat (" + existing.visits + " prior)";
+}
+
+function extractionPreviewRows(result) {
+  var ex = result.extracted || {};
+  var guestNames = ex.guests && Array.isArray(ex.guests.names) ? ex.guests.names : [];
+  var became = {};
+  (Array.isArray(ex.visitorsBecameMembers) ? ex.visitorsBecameMembers : []).forEach(function (name) {
+    became[normalizePersonName(name)] = true;
+  });
+
+  var visitorRows = guestNames.length ? guestNames.map(function (name, i) {
+    return '<div class="preview-item">' +
+      '<label><span class="sheet-label">Visitor ' + (i + 1) + ' · ' +
+        esc(visitorStatus(state, selectedClubId, name)) + '</span>' +
+        '<input class="text-input" data-visitor-name value="' + escAttr(name) + '"></label>' +
+      '<label class="preview-check"><input type="checkbox" data-visitor-member' +
+        (became[normalizePersonName(name)] ? " checked" : "") + '> Became member</label>' +
+    '</div>';
+  }).join("") : '<p class="review-note">No visitor names found. Adjust the guest count if needed.</p>';
+
+  var memberRows = (Array.isArray(ex.memberVisits) ? ex.memberVisits : []).map(function (visit) {
+    return '<div class="sheet-row"><span>' + esc(visit.memberName || "Member") +
+      '</span><span class="row-total">' + esc(visit.visitedClubName || "Other club") + '</span></div>';
+  }).join("") || '<p class="review-note">No member visits found.</p>';
+
+  var awardRows = (Array.isArray(ex.awards) ? ex.awards : []).map(function (award) {
+    return '<div class="sheet-row"><span>' + esc((award.level || "").toUpperCase()) +
+      ' award</span><span class="row-total">' + esc(award.name || "") + '</span></div>';
+  }).join("") || '<p class="review-note">No Area, Division, or District awards found.</p>';
+
+  var eventRows = (Array.isArray(ex.eventParticipation) ? ex.eventParticipation : []).map(function (event) {
+    return '<div class="sheet-row"><span>' + esc((event.level || "").toUpperCase()) +
+      ' participation</span><span class="row-total">' + esc(event.name || "") + '</span></div>';
+  }).join("") || '<p class="review-note">No Area, Division, or District participation found.</p>';
+
+  var needsReview = result.confidence && Array.isArray(result.confidence.needsReview)
+    ? result.confidence.needsReview : [];
+
+  return '' +
+    '<label class="sheet-label">Guest count</label>' +
+    '<input class="num-input" inputmode="numeric" data-guest-count value="' +
+      escAttr(ex.guests && typeof ex.guests.count === "number" ? ex.guests.count : guestNames.length) + '">' +
+    '<div class="preview-list">' + visitorRows + '</div>' +
+    '<h4 class="form-section-title">Members visiting other clubs</h4>' + memberRows +
+    '<h4 class="form-section-title">Awards</h4>' + awardRows +
+    '<h4 class="form-section-title">Event participation</h4>' + eventRows +
+    '<h4 class="form-section-title">Confidence</h4>' +
+    '<p class="review-note">' + esc(result.confidence ? result.confidence.overall : "medium") + '</p>' +
+    (needsReview.length
+      ? '<p class="review-note">' + needsReview.map(esc).join(" ") + '</p>'
+      : '<p class="review-note">No review notes returned.</p>');
+}
+
+function reviewedExtractionFromSheet(result, sheet) {
+  var reviewed = structuredClone(result);
+  var visitorInputs = Array.prototype.slice.call(sheet.querySelectorAll("[data-visitor-name]"));
+  var memberChecks = Array.prototype.slice.call(sheet.querySelectorAll("[data-visitor-member]"));
+  var names = visitorInputs.map(function (input) {
+    return cleanPersonName(input.value);
+  }).filter(Boolean);
+  var became = [];
+  memberChecks.forEach(function (check, i) {
+    if (check.checked && names[i]) became.push(names[i]);
+  });
+  var countInput = sheet.querySelector("[data-guest-count]");
+  var count = clampNum(countInput ? countInput.value : names.length, 0, 999);
+  reviewed.extracted.guests = { count: count, names: names };
+  reviewed.extracted.visitorsBecameMembers = became;
+  return reviewed;
+}
+
+function openMinutesExtractionPreview(result) {
+  openSheet({
+    title: "Review minutes extraction",
+    bodyHtml: extractionPreviewRows(result),
+    confirmLabel: "Apply",
+    onConfirm: function (sheet) {
+      var reviewed = reviewedExtractionFromSheet(result, sheet);
+      replaceState(applyMinutesExtraction(
+        state,
+        selectedClubId,
+        reviewed,
+        extractionMeetingDate(reviewed)
+      ));
+      showToast("Minutes extraction applied");
+    }
+  });
+}
+
+async function requestMinutesExtraction(main, button) {
+  var club = selectedClub(state);
+  var textEl = main.querySelector("[data-minutes]");
+  var fileEl = main.querySelector("[data-minutes-file]");
+  var dateEl = main.querySelector("[data-meeting-date]");
+  var text = textEl ? textEl.value.trim() : "";
+  var file = fileEl && fileEl.files ? fileEl.files[0] : null;
+  if (!text && !file) {
+    showToast("Paste minutes text or upload a minutes file.");
+    return;
+  }
+
+  var form = new FormData();
+  form.append("clubId", club.id);
+  form.append("clubName", club.name);
+  form.append("meetingDate", dateEl && dateEl.value ? dateEl.value : localToday());
+  if (text) form.append("text", text);
+  if (file) form.append("file", file);
+
+  button.disabled = true;
+  button.textContent = "Extracting...";
+  try {
+    var res = await fetch("/api/extract-minutes", { method: "POST", body: form });
+    var data = await res.json().catch(function () {
+      return { ok: false, error: "Minutes extraction did not return JSON." };
+    });
+    if (!res.ok || !data.ok) {
+      showToast(data.error || "Minutes extraction failed.", "error");
+      return;
+    }
+    openMinutesExtractionPreview(data);
+  } catch (err) {
+    showToast("AI extraction is unavailable. Manual entry still works.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Extract from minutes";
+  }
+}
+
 function renderManual(main, state) {
   ensureSelectedClub(state);
   var a = state.awards[selectedClubId];
   var h = state.health[selectedClubId];
+  var engagement = clubEngagementSummary(state, selectedClubId);
 
   main.innerHTML =
     '<h2 class="screen-title">Manual Entry</h2>' +
@@ -2108,9 +2440,26 @@ function renderManual(main, state) {
       })) +
     '</section>' +
     '<section class="form-card">' +
-      '<h3 class="form-section-title">Minutes helper</h3>' +
+      '<h3 class="form-section-title">Minutes extraction</h3>' +
+      '<label class="sheet-label">Meeting date</label>' +
+      '<input class="date-input" type="date" data-meeting-date value="' + localToday() + '">' +
       '<textarea class="minutes-text" data-minutes placeholder="Paste meeting minutes here…"></textarea>' +
-      '<button type="button" class="btn-accent-outline btn-block" data-extract>Extract from minutes</button>' +
+      '<label class="sheet-label">Minutes file</label>' +
+      '<input class="file-input" type="file" data-minutes-file accept=".txt,.docx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">' +
+      '<div class="minutes-actions">' +
+        '<button type="button" class="btn-accent-outline" data-extract>Extract from minutes</button>' +
+      '</div>' +
+      '<h3 class="form-section-title">Engagement progress</h3>' +
+      '<div class="sheet-row"><span>Unique visitors</span><span class="row-total">' +
+        engagement.uniqueVisitors + '</span></div>' +
+      '<div class="sheet-row"><span>Became members</span><span class="row-total">' +
+        engagement.becameMembers + '</span></div>' +
+      '<div class="sheet-row"><span>Total visitor visits</span><span class="row-total">' +
+        engagement.totalVisits + '</span></div>' +
+      '<div class="sheet-row"><span>Members visiting other clubs</span><span class="row-total">' +
+        engagement.memberVisits + '</span></div>' +
+      '<div class="sheet-row"><span>Area/Division/District items</span><span class="row-total">' +
+        engagement.events + '</span></div>' +
     '</section>';
 
   bindClubPicker(main);
@@ -2126,38 +2475,8 @@ function renderManual(main, state) {
     update(function (s) { s[parts[0]][selectedClubId][parts[1]] = v; });
   });
 
-  // Extract flow: Sheet preview, then DOM-ONLY prefill + yellow flash — no
-  // state write until the user confirms each value via the normal inputs.
   main.querySelector("[data-extract]").addEventListener("click", function () {
-    var found = extractMinutes(main.querySelector("[data-minutes]").value);
-    var keys = Object.keys(found);
-    if (keys.length === 0) {
-      showToast("Nothing found in that text");
-      return;
-    }
-    var rows = keys.map(function (k) {
-      return '<div class="sheet-row"><span>' + esc(HEALTH_LABELS[k]) +
-        '</span><span class="row-total">' + found[k] + '</span></div>';
-    }).join("");
-    openSheet({
-      title: "Found in minutes",
-      bodyHtml:
-        '<p class="sheet-label">Pre-fills the Club Health form for review — ' +
-          'nothing saves until you confirm each value.</p>' + rows,
-      confirmLabel: "Pre-fill",
-      onConfirm: function () {
-        keys.forEach(function (k) {
-          var el = k === "attendancePct"
-            ? main.querySelector('[data-health-num="attendancePct"]')
-            : main.querySelector('[data-stepper="health:' + k + '"] .step-value');
-          if (!el) return;
-          el.value = found[k];
-          el.classList.remove("flash");
-          void el.offsetWidth; // restart the one-shot animation
-          el.classList.add("flash");
-        });
-      }
-    });
+    requestMinutesExtraction(main, this);
   });
 }
 

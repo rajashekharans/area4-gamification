@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/extract-minutes.mjs": {
+      "maxDuration": 60
+    }
+  }
+}
