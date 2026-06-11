@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: executing
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
-  percent: 75
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -16,23 +16,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Area Director completes the full weekly update ritual (TMI CSV in → minutes data in → snapshot saved → WhatsApp-shareable leaderboard) on a phone, with scores matching the Excel workbook exactly.
-**Current focus:** Phase 3 — Data ingestion: TMI + manual entry
+**Current focus:** Phase 4 — Trends, settings, backup, polish (FINAL)
 
 ## Current Position
 
-Phase: 3 of 4 (Data ingestion: TMI + manual entry)
+Phase: 4 of 4 (Trends, settings, backup, polish) — FINAL PHASE
 Plan: 1 of 1 in current phase — EXECUTED (awaiting orchestrator verification before roadmap check-off)
-Status: Phase 3 executed — all three tasks committed, tests.html suite 70/70 green (headless node run)
-Last activity: 2026-06-11 — Executed 03-01-PLAN.md: TMI data entry screen + form kit (6493340), TMI CSV ingestion with CORS fallback upload (03e316c), manual entry + minutes extractor (f6a288d); SUMMARY created
+Status: Phase 4 executed — all three tasks committed, tests.html suite 75/75 green (headless node run); PROJECT FEATURE-COMPLETE pending verification
+Last activity: 2026-06-11 — Executed 04-01-PLAN.md: trends chart with snapshot history (99dd709), settings + weight editor + JSON export/import (23537f4), README and mobile polish (fb52438); SUMMARY created
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 9 min
-- Total execution time: 0.45 hours
+- Total plans completed: 4
+- Average duration: 11 min
+- Total execution time: 0.75 hours
 
 **By Phase:**
 
@@ -41,9 +41,10 @@ Progress: [███████░░░] 75%
 | 01-core | 1 | 9 min | 9 min |
 | 02-leaderboard | 1 | 5 min | 5 min |
 | 03-ingestion | 1 | 13 min | 13 min |
+| 04-trends-settings | 1 | 18 min | 18 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (9 min), 02-01 (5 min), 03-01 (13 min)
+- Last 5 plans: 01-01 (9 min), 02-01 (5 min), 03-01 (13 min), 04-01 (18 min)
 - Trend: steady
 
 *Updated after each plan completion*
@@ -82,13 +83,22 @@ Execution decisions (03-01, 2026-06-11):
 - Extract-from-minutes prefill is DOM-only (no state write) with a one-shot `--duration-flash: 1500ms` yellow fade; values persist only via the inputs' own change handlers
 - showToast grew an error variant (second arg `"error"` → `--color-error` accent) for ingest failures
 
+Execution decisions (04-01, 2026-06-11):
+
+- Chart series palette read at render time via getComputedStyle in the fixed phase-design token order (primary, accent, gold, success, silver, bronze); UI-local chart instance destroyed before every rebuild
+- validateImport short-circuits only non-plain-object input; all other failed checks accumulate into errors[] so the rejection Toast lists everything at once; rejected import leaves state untouched
+- Full-state replacement (import confirm + seed reset) via shared replaceState helper: delete-then-reassign every top-level key on the EXISTING state object inside one update() call so closures stay valid; import path is deepMerge(structuredClone(DEFAULT_STATE), imported) — the loadState path
+- Toast error text passed raw (showToast renders via textContent, inherently inert); esc() applied at every innerHTML interpolation point (threat T-04-02)
+- Shell sizing: `--shell-min-height` token in :root (`100vh` fallback) re-declared to `100dvh` inside @supports; body min-height flows through the token — raw viewport units stay in :root declarations only
+
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
 
-- Prospect Phoenix club number unknown (stored `null`, editable in Settings); TMI CSV matching for that club relies on normalized-name fallback until the Area Director fills it in. Fallback implemented and tested in 03-01 (sample CSV row with club number 0 maps correctly).
+- Prospect Phoenix club number unknown (stored `null`, editable in Settings with a hint chip); TMI CSV matching for that club relies on normalized-name fallback until the Area Director fills it in.
+- Manual browser verification outstanding for Phase 4 (cannot run headlessly): 360px walkthrough of all five screens, chart render + CDN-blocked table fallback, import/export round-trip, tests.html over http.
 
 ## Deferred Items
 
@@ -99,5 +109,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-06-11
-Stopped at: Completed 03-01-PLAN.md (Phase 3 executed; orchestrator verification + roadmap check-off pending)
+Stopped at: Completed 04-01-PLAN.md (Phase 4 — final — executed; orchestrator verification + roadmap check-off pending; project feature-complete)
 Resume file: None
