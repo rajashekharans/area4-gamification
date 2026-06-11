@@ -12,6 +12,19 @@ function cleanName(value) {
   return cleanText(value).replace(/\s+/g, " ");
 }
 
+function normalizeClubText(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/toastmasters|club|regular|meeting|minutes|of|#\d+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function compactClubText(value) {
+  return normalizeClubText(value).replace(/\s+/g, "");
+}
+
 function asNumber(value, fallback = null) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -66,6 +79,56 @@ export function mergeRequestFallbacks(parts, headers = {}) {
     clubName: cleanText(parts?.clubName) || cleanText(readHeader("x-area4-club-name")),
     meetingDate: cleanText(parts?.meetingDate) || cleanText(readHeader("x-area4-meeting-date"))
   };
+}
+
+export function detectMinutesClubName(text) {
+  const source = cleanText(text);
+  const patterns = [
+    /minutes\s+of\s+(.{3,80}?)(?:\s+regular\s+meeting|\s+meeting|\s+#|\s*$)/i,
+    /(.{3,80}?\btoastmasters(?:\s+club)?)\s+regular\s+meeting/i,
+    /\b([A-Z][A-Za-z' -]{2,60}\s+Toastmasters(?:\s+Club)?)\b/
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(source);
+    if (match) {
+      const name = cleanName(match[1]).replace(/\s+#?\d+.*$/i, "");
+      if (compactClubText(name).length >= 4) return name;
+    }
+  }
+  return "";
+}
+
+export function checkSelectedClubMatchesMinutes({ selectedClubName, text }) {
+  const detected = detectMinutesClubName(text);
+  if (!detected) return { ok: true };
+  const selectedKey = compactClubText(selectedClubName);
+  const detectedKey = compactClubText(detected);
+  if (!selectedKey || !detectedKey) return { ok: true };
+  if (selectedKey.includes(detectedKey) || detectedKey.includes(selectedKey)) return { ok: true };
+  return {
+    ok: false,
+    error: `The uploaded minutes look like ${cleanName(detected)}, but ${cleanName(selectedClubName)} is selected.`
+  };
+}
+
+export function countMembersPresent(text) {
+  const source = cleanText(text).replace(/\s+/g, " ");
+  const match = /members\s+present\s+(?:were|are|:)?\s*([\s\S]*?)(?:members?\s+apolog(?:y|ies)|visitors?|guests?|theme:|word\s+of\s+the\s+day|club\s+business|prepared\s+speeches|presiding\s+officer|chairman|toastmaster|next\s+meeting|meeting\s+was\s+adjourned|$)/i.exec(source);
+  if (!match) return 0;
+  const names = match[1]
+    .split(/\s*,\s*|\s+;\s*|\s+\band\b\s+/i)
+    .map(cleanName)
+    .map((name) => name.replace(/\s+(members?|present)\b.*$/i, "").trim())
+    .filter((name) => name && /[a-z]/i.test(name));
+  return names.length;
+}
+
+export function inferAttendancePct({ text, activeMembers }) {
+  const denominator = Number(activeMembers);
+  if (!Number.isFinite(denominator) || denominator <= 0) return null;
+  const present = countMembersPresent(text);
+  if (present <= 0) return null;
+  return Math.min(100, Math.max(0, Math.round((present / denominator) * 100)));
 }
 
 function decodeXmlEntities(value) {
@@ -313,7 +376,15 @@ async function callGateway({ source, text }) {
   return parseGatewayContent(content);
 }
 
-export async function extractMinutesWithAI({ clubId, clubName, meetingDate, inputType, text, generate = callGateway }) {
+export async function extractMinutesWithAI({
+  clubId,
+  clubName,
+  meetingDate,
+  inputType,
+  text,
+  activeMembers,
+  generate = callGateway
+}) {
   const source = {
     clubId: cleanText(clubId),
     clubName: cleanText(clubName),
@@ -325,10 +396,13 @@ export async function extractMinutesWithAI({ clubId, clubName, meetingDate, inpu
     return { ok: false, error: "Could not extract enough text from the minutes." };
   }
   const raw = await generate({ source, text: minutesText });
+  const extracted = normalizeExtraction(raw);
+  const inferredAttendance = inferAttendancePct({ text: minutesText, activeMembers });
+  if (inferredAttendance !== null) extracted.attendancePct = inferredAttendance;
   return {
     ok: true,
     source,
-    extracted: normalizeExtraction(raw),
+    extracted,
     confidence: normalizeConfidence(raw)
   };
 }

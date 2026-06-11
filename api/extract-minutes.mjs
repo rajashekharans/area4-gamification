@@ -1,4 +1,5 @@
 import {
+  checkSelectedClubMatchesMinutes,
   extractMinutesWithAI,
   extractTextFromFile,
   mergeRequestFallbacks,
@@ -112,6 +113,7 @@ export default async function handler(req, res) {
       clubName: fields.clubName,
       text: fields.text,
       meetingDate: fields.meetingDate,
+      activeMembers: fields.activeMembers,
       file
     }, req.headers);
     const validation = validateRequestParts(requestParts);
@@ -131,11 +133,20 @@ export default async function handler(req, res) {
     }
 
     const text = [fields.text, fileText].map((v) => String(v || "").trim()).filter(Boolean).join("\n\n");
+    const clubCheck = checkSelectedClubMatchesMinutes({
+      selectedClubName: requestParts.clubName,
+      text
+    });
+    if (!clubCheck.ok) {
+      sendJson(res, 400, { ok: false, error: clubCheck.error });
+      return;
+    }
     const result = await extractMinutesWithAI({
       clubId: requestParts.clubId,
       clubName: requestParts.clubName,
       meetingDate: requestParts.meetingDate,
       inputType: inputTypeFor(file, fields.text),
+      activeMembers: requestParts.activeMembers,
       text
     });
     sendJson(res, result.ok ? 200 : 400, result);

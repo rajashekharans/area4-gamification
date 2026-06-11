@@ -2457,6 +2457,7 @@ async function requestMinutesExtraction(main, button) {
   var textEl = main.querySelector("[data-minutes]");
   var fileEl = main.querySelector("[data-minutes-file]");
   var dateEl = main.querySelector("[data-meeting-date]");
+  var activeMembers = state.tmi[club.id] ? state.tmi[club.id].current : 0;
   var text = textEl ? textEl.value.trim() : "";
   var file = selectedMinutesFile || (fileEl && fileEl.files ? fileEl.files[0] : null);
   if (!text && !file) {
@@ -2468,6 +2469,7 @@ async function requestMinutesExtraction(main, button) {
   form.append("clubId", club.id);
   form.append("clubName", club.name);
   form.append("meetingDate", dateEl && dateEl.value ? dateEl.value : localToday());
+  form.append("activeMembers", String(activeMembers));
   var rawUploadFile = null;
 
   button.disabled = true;
@@ -2498,6 +2500,7 @@ async function requestMinutesExtraction(main, button) {
       clubId: club.id,
       clubName: club.name,
       meetingDate: dateEl && dateEl.value ? dateEl.value : localToday(),
+      activeMembers: activeMembers,
       text: combinedText
     });
     var headers = {

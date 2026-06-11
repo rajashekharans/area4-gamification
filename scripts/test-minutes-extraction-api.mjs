@@ -4,8 +4,11 @@ import { deflateRawSync } from "node:zlib";
 import handler from "../api/extract-minutes.mjs";
 import {
   buildGatewayRequestBody,
+  checkSelectedClubMatchesMinutes,
+  countMembersPresent,
   extractMinutesWithAI,
   extractTextFromFile,
+  inferAttendancePct,
   mergeRequestFallbacks,
   parseGatewayContent,
   validateRequestParts
@@ -60,7 +63,8 @@ const generated = await extractMinutesWithAI({
   clubName: "Marsden Park Toastmasters",
   meetingDate: "2026-06-11",
   inputType: "text",
-  text: "Guests: Jane Smith and Alex Lee. Raj visited Blacktown City.",
+  activeMembers: 4,
+  text: "Members present were: Jane Smith, Alex Lee. Guests: Jane Smith and Alex Lee. Raj visited Blacktown City.",
   generate: async ({ source, text }) => {
     assert.equal(source.clubId, "marsden-park");
     assert.ok(text.includes("Jane Smith"));
@@ -86,7 +90,7 @@ assert.deepEqual(generated, {
     inputType: "text"
   },
   extracted: {
-    attendancePct: 67,
+    attendancePct: 50,
     meetings: 1,
     guests: { count: 2, names: ["Jane Smith", "Alex Lee"] },
     visitorsBecameMembers: ["Jane Smith"],
@@ -147,6 +151,44 @@ assert.deepEqual(
     confidence: { overall: "high", needsReview: [] }
   }
 );
+
+assert.deepEqual(
+  checkSelectedClubMatchesMinutes({
+    selectedClubName: "Quakers Hill Toastmasters",
+    text: "Minutes of Quakers Hill Toastmasters Club Regular Meeting #726"
+  }),
+  { ok: true }
+);
+
+assert.deepEqual(
+  checkSelectedClubMatchesMinutes({
+    selectedClubName: "Marsden Park Toastmasters",
+    text: "Minutes of Quakers Hill Toastmasters Club Regular Meeting #726"
+  }),
+  {
+    ok: false,
+    error: "The uploaded minutes look like Quakers Hill Toastmasters Club, but Marsden Park Toastmasters is selected."
+  }
+);
+
+assert.deepEqual(
+  checkSelectedClubMatchesMinutes({
+    selectedClubName: "Marsden Park Toastmasters",
+    text: "Visitors: Narmada, Mani, Bhavik"
+  }),
+  { ok: true }
+);
+
+const sampleAttendanceText = [
+  "Members present were: Maziar Bijari, Jimmy Boghdadi, Pradeep Borah, Raymond Buttigieg, Leonardo Canao",
+  "Members apology: Navid Baradaran, Manuja Dayananda",
+  "Visitors: Narmada, Mani, Bhavik"
+].join(" ");
+
+assert.equal(countMembersPresent(sampleAttendanceText), 5);
+assert.equal(inferAttendancePct({ text: sampleAttendanceText, activeMembers: 10 }), 50);
+assert.equal(inferAttendancePct({ text: sampleAttendanceText, activeMembers: 4 }), 100);
+assert.equal(inferAttendancePct({ text: "Visitors: Narmada, Mani", activeMembers: 10 }), null);
 
 {
   const previousGatewayKey = process.env.AI_GATEWAY_API_KEY;
