@@ -68,7 +68,7 @@ function runCases(A4, assertEq) {
   assertEq("seed: quakers-hill bonus lands in membership category",
     seedScores["quakers-hill"].breakdown.membership, 5);
 
-  // --- Full-house club: six-category breakdown, total 176 ---
+  // --- Full-house club: six-category breakdown, total 166 ---
   var s = clone();
   s.tmi["blacktown-city"] = { base: 20, current: 24, goals: [1,1,1,1,1,1,1,1,1,1],
     distinguished: "P", duesOct: 1, duesApr: 1, officerList: 1, cotRounds: 2 };
@@ -76,9 +76,9 @@ function runCases(A4, assertEq) {
     tripleCrowns: 2, areaWins: 1, divWins: 1, distWins: 1 };
   s.health["blacktown-city"] = { meetings: 7, attendancePct: 80, guests: 12, conversions: 2 };
   var fh = A4.computeScores(s)["blacktown-city"];
-  assertEq("full house: breakdown 50/25/13/25/33/30", fh.breakdown,
-    { dcp: 50, dist: 25, membership: 13, admin: 25, awards: 33, health: 30 });
-  assertEq("full house: total 176", fh.total, 176);
+  assertEq("full house: breakdown 50/25/13/25/33/20", fh.breakdown,
+    { dcp: 50, dist: 25, membership: 13, admin: 25, awards: 33, health: 20 });
+  assertEq("full house: total 166", fh.total, 166);
 
   // --- Attendance boundaries (whole percent; >=75 -> 5, >=50 -> 3, else 0) ---
   [[75, 5], [74, 3], [50, 3], [49, 0]].forEach(function (c) {
@@ -145,10 +145,10 @@ function runCases(A4, assertEq) {
 
   // --- Phase 2: areaTotals ---
   assertEq("areaTotals: seed scores sum to 10", A4.areaTotals(seedScores), 10);
-  // Full-house fixture `s`: blacktown 176 + quakers-hill seed bonus 5
+  // Full-house fixture `s`: blacktown 166 + quakers-hill seed bonus 5
   // (blacktown's own seed 5 is replaced by the fixture, others 0).
-  assertEq("areaTotals: full-house blacktown state sums to 181",
-    A4.areaTotals(A4.computeScores(s)), 181);
+  assertEq("areaTotals: full-house blacktown state sums to 171",
+    A4.areaTotals(A4.computeScores(s)), 171);
 
   // --- Phase 2: saveSnapshot (pure, same-date replace, prune-to-60) ---
   var ss = clone();
@@ -287,17 +287,17 @@ function runCases(A4, assertEq) {
     applied.tmi !== stApply.tmi && applied.tmi["quakers-hill"] !== stApply.tmi["quakers-hill"], true);
 
   // --- Phase 3: extractMinutes (4 positive + 1 negative plan-doc cases) ---
-  assertEq("extractMinutes: of-form attendance + guests + conversion",
+  assertEq("extractMinutes: of-form attendance + guests",
     A4.extractMinutes("12 of 18 members attended, 3 guests, 1 guest joined"),
-    { attendancePct: 67, guests: 3, conversions: 1 });
+    { attendancePct: 67, guests: 3 });
   assertEq("extractMinutes: bare percent",
     A4.extractMinutes("Attendance was 80%"), { attendancePct: 80 });
   assertEq("extractMinutes: meetings + guests",
     A4.extractMinutes("We held 4 meetings this month with 5 guests"),
     { guests: 5, meetings: 4 }); // key order follows extractor insertion (JSON compare)
-  assertEq("extractMinutes: new member + percent attendance",
+  assertEq("extractMinutes: new member text ignored, percent attendance kept",
     A4.extractMinutes("1 new member joined after 90% attendance"),
-    { attendancePct: 90, conversions: 1 });
+    { attendancePct: 90 });
   assertEq("extractMinutes: nothing found -> empty object",
     A4.extractMinutes("The committee discussed the agenda at length."), {});
 

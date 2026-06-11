@@ -14,7 +14,7 @@ The full design (scoring formulas, screens, data model) lives at
 Once a week, on your phone or computer:
 
 1. **Update minutes data** — open the **Manual Entry** tab, pick each club, and
-   fill in awards and club health (meetings, attendance, guests, conversions).
+   fill in awards and club health (meetings, attendance, guests).
    Tip: paste the club's meeting minutes into the **Minutes helper** box and tap
    **Extract from minutes** to pre-fill the form.
 2. **Refresh TMI** — open the **TMI** tab and tap **Refresh from TMI**. On the

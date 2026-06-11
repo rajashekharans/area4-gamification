@@ -754,14 +754,15 @@ var DEFAULT_STATE = {
       { id: "holroyd", name: "Holroyd Toastmasters", clubNumber: 7851 }
     ]
   },
-  // 21 keys: 19 workbook weights + 2 caps the workbook hardcodes in formulas.
+  // 20 active keys: conversion scoring is intentionally omitted because
+  // joined members are already represented by TMI new-member goals.
   weights: {
     dcpGoal: 5, distD: 10, distS: 15, distP: 25,
     memberGrowth: 2, memberBonus20: 5,
     duesOnTime: 5, officerList: 5, cotRound: 5,
     d90Award: 5, tripleCrown: 5, contestArea: 3, contestDivision: 5, contestDistrict: 10,
     attendance75: 5, attendance50: 3, perGuest: 1, guestCap: 10,
-    perConversion: 5, perMeeting: 1, meetingCap: 5
+    perMeeting: 1, meetingCap: 5
   },
   tmi: {
     "marsden-park":     { base: 18, current: 18, goals: [0,0,0,0,0,0,0,0,0,0], distinguished: "", duesOct: 0, duesApr: 0, officerList: 0, cotRounds: 0 },
@@ -873,7 +874,6 @@ function computeScores(state) {
                 : h.attendancePct >= 50 ? w.attendance50
                 : 0) +
                  Math.min(h.guests * w.perGuest, w.guestCap) +
-                 h.conversions * w.perConversion +
                  Math.min(h.meetings * w.perMeeting, w.meetingCap);
 
     var breakdown = { dcp: dcp, dist: dist, membership: membership,
@@ -1348,9 +1348,6 @@ function extractMinutes(text) {
 
   m = /(\d+)\s*guests?/i.exec(s);
   if (m) out.guests = parseInt(m[1], 10);
-
-  m = /(\d+)\s*(?:guests?\s*)?(?:joined|converted|new member)/i.exec(s);
-  if (m) out.conversions = parseInt(m[1], 10);
 
   m = /(\d+)\s*meetings?/i.exec(s);
   if (m) out.meetings = parseInt(m[1], 10);
@@ -2076,7 +2073,6 @@ var AWARD_ROWS = [
 var HEALTH_LABELS = {
   attendancePct: "Avg attendance %",
   guests: "Guests",
-  conversions: "Conversions",
   meetings: "Meetings held"
 };
 
@@ -2109,9 +2105,6 @@ function renderManual(main, state) {
         '</span>') +
       formRow("Guests", stepperHtml({
         key: "health:guests", value: h.guests, min: 0, max: 999, label: "Guests"
-      })) +
-      formRow("Conversions", stepperHtml({
-        key: "health:conversions", value: h.conversions, min: 0, max: 999, label: "Conversions"
       })) +
     '</section>' +
     '<section class="form-card">' +
@@ -2407,7 +2400,6 @@ var WEIGHT_GROUPS = [
     ["attendance50", "Attendance 50–74%"],
     ["perGuest", "Per guest"],
     ["guestCap", "Guest points cap"],
-    ["perConversion", "Per guest who joined"],
     ["perMeeting", "Per meeting held"],
     ["meetingCap", "Meeting points cap"]
   ]]
