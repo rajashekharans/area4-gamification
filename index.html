@@ -228,6 +228,82 @@ main#screen {
 .bd-row.zero { color: var(--color-text-muted); }
 .bd-row.bd-total { font-weight: 700; }
 
+/* Buttons */
+.btn-primary,
+.btn-secondary {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-md);
+  /* --space-3 vertical padding keeps the B5 touch-target minimum */
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+.btn-secondary {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.btn-block {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-4);
+}
+
+/* Sheet — bottom sheet modal (A4 Kit; reused by later phases) */
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-text) 50%, transparent);
+  z-index: 30;
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-4);
+  z-index: 31;
+}
+.sheet-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+.sheet-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.sheet-actions button { flex: 1; }
+.sheet-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.sheet input[type="date"] {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  width: 100%;
+  padding: var(--space-2);
+  margin: var(--space-2) 0 var(--space-3);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+}
+.sheet-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  padding: var(--space-2) 0;
+}
+.sheet-row .row-total { font-weight: 600; }
+
 /* Toast */
 .toast {
   position: fixed;
@@ -447,13 +523,31 @@ function areaTotals(scores) {
   }, 0);
 }
 
+// Weekly snapshot save (workbook copy-to-Previous ritual). PURE: returns a
+// NEW snapshots array — input state and its snapshots array are not mutated.
+// Same-date saves replace the existing entry; result pruned to 60 entries
+// oldest-first (B5 data safety, threat T-02-02).
+function saveSnapshot(state, date) {
+  var entry = { date: date, scores: computeScores(state) };
+  var next = state.snapshots.slice();
+  var existing = next.findIndex(function (snap) { return snap.date === date; });
+  if (existing >= 0) {
+    next[existing] = entry;
+  } else {
+    next.push(entry);
+  }
+  while (next.length > 60) next.shift();
+  return next;
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
   saveState: saveState,
   computeScores: computeScores,
   movementVs: movementVs,
-  areaTotals: areaTotals
+  areaTotals: areaTotals,
+  saveSnapshot: saveSnapshot
 };
 
 // === UI ===
@@ -466,6 +560,39 @@ function showToast(msg) {
   setTimeout(function () { el.remove(); }, 4000);
 }
 window.A4.toast = showToast;
+
+// Sheet (A4 Kit) — generic bottom sheet modal, reused by later phases
+// (snapshot confirm, CSV column report, import preview). Scrim tap and
+// Cancel dismiss without side effects. onConfirm(sheetEl) returning false
+// keeps the sheet open (e.g. validation failure); anything else closes it.
+function openSheet(opts) {
+  var scrim = document.createElement("div");
+  scrim.className = "sheet-scrim";
+  var sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.innerHTML =
+    '<h3 class="sheet-title">' + esc(opts.title) + '</h3>' +
+    '<div class="sheet-body">' + opts.bodyHtml + '</div>' +
+    '<div class="sheet-actions">' +
+      '<button type="button" class="btn-secondary" data-sheet-cancel>Cancel</button>' +
+      '<button type="button" class="btn-primary" data-sheet-confirm>' +
+        esc(opts.confirmLabel || "Confirm") + '</button>' +
+    '</div>';
+  function close() {
+    scrim.remove();
+    sheet.remove();
+  }
+  scrim.addEventListener("click", close);
+  sheet.querySelector("[data-sheet-cancel]").addEventListener("click", close);
+  sheet.querySelector("[data-sheet-confirm]").addEventListener("click", function () {
+    if (opts.onConfirm && opts.onConfirm(sheet) === false) return;
+    close();
+  });
+  document.body.appendChild(scrim);
+  document.body.appendChild(sheet);
+}
 
 var state = loadState();
 
@@ -592,7 +719,12 @@ function renderLeaderboard(main, state) {
     '</article>';
   }).join("");
 
-  main.innerHTML = '<h2 class="screen-title">Leaderboard</h2>' + chipsHtml + cardsHtml;
+  main.innerHTML = '<h2 class="screen-title">Leaderboard</h2>' + chipsHtml + cardsHtml +
+    '<button type="button" class="btn-primary btn-block" data-snapshot>Save weekly snapshot</button>';
+
+  main.querySelector("[data-snapshot]").addEventListener("click", function () {
+    openSnapshotSheet(state, scores, clubs);
+  });
 
   // Toggle classes directly (not via re-render) so the max-height transition animates.
   main.querySelectorAll(".club-card").forEach(function (card) {
@@ -616,6 +748,43 @@ function renderLeaderboard(main, state) {
         toggle();
       }
     });
+  });
+}
+
+// Today as YYYY-MM-DD in LOCAL time — toISOString would yield yesterday's
+// date during AEST mornings (UTC offset).
+function localToday() {
+  var d = new Date();
+  return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getDate()).padStart(2, "0");
+}
+
+function openSnapshotSheet(state, scores, clubs) {
+  var previewRows = clubs.map(function (club) {
+    return '<div class="sheet-row"><span>' + esc(club.name) + '</span>' +
+      '<span class="row-total">' + scores[club.id].total + '</span></div>';
+  }).join("");
+
+  openSheet({
+    title: "Save weekly snapshot",
+    bodyHtml:
+      '<label class="sheet-label" for="snap-date">Snapshot date</label>' +
+      '<input type="date" id="snap-date" value="' + localToday() + '">' +
+      previewRows,
+    confirmLabel: "Confirm",
+    onConfirm: function (sheet) {
+      var date = sheet.querySelector("#snap-date").value;
+      // Threat T-02-01: require a complete YYYY-MM-DD before any state write.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        showToast("Enter a valid date before saving.");
+        return false; // keep the sheet open, state untouched
+      }
+      update(function (s) {
+        s.snapshots = saveSnapshot(s, date);
+      });
+      showToast("Snapshot saved");
+    }
   });
 }
 

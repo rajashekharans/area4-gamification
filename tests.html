@@ -149,6 +149,56 @@ function runCases(A4, assertEq) {
   // (blacktown's own seed 5 is replaced by the fixture, others 0).
   assertEq("areaTotals: full-house blacktown state sums to 181",
     A4.areaTotals(A4.computeScores(s)), 181);
+
+  // --- Phase 2: saveSnapshot (pure, same-date replace, prune-to-60) ---
+  var ss = clone();
+  var snaps1 = A4.saveSnapshot(ss, "2026-06-11");
+  assertEq("saveSnapshot: first save appends",
+    [snaps1.length, snaps1[0].date], [1, "2026-06-11"]);
+  assertEq("saveSnapshot: first save stores computeScores output",
+    snaps1[0].scores, A4.computeScores(ss));
+  assertEq("saveSnapshot: pure",
+    [ss.snapshots.length, snaps1 !== ss.snapshots], [0, true]);
+
+  ss.snapshots = snaps1;
+  var snaps2 = A4.saveSnapshot(ss, "2026-06-18");
+  assertEq("saveSnapshot: distinct dates append in order",
+    [snaps2.length, snaps2[0].date, snaps2[1].date],
+    [2, "2026-06-11", "2026-06-18"]);
+
+  ss.snapshots = snaps2;
+  ss.tmi["marsden-park"].goals = [1,1,1,1,1,1,1,1,1,1];
+  var snaps3 = A4.saveSnapshot(ss, "2026-06-18");
+  assertEq("saveSnapshot: same-date replace",
+    [snaps3.length,
+     snaps3.filter(function (e) { return e.date === "2026-06-18"; }).length,
+     snaps3[1].scores["marsden-park"].total],
+    [2, 1, 50]);
+
+  var sp = clone();
+  for (var i = 0; i < 60; i++) {
+    sp.snapshots.push({
+      date: "2025-" + String(Math.floor(i / 28) + 1).padStart(2, "0") +
+            "-" + String((i % 28) + 1).padStart(2, "0"),
+      scores: {}
+    });
+  }
+  var pruned = A4.saveSnapshot(sp, "2026-06-11");
+  assertEq("saveSnapshot: prunes to 60",
+    [pruned.length,
+     pruned.filter(function (e) { return e.date === "2025-01-01"; }).length,
+     pruned[pruned.length - 1].date],
+    [60, 0, "2026-06-11"]);
+
+  // --- Phase 2: movement vs a snapshot stored via saveSnapshot ---
+  var smv = clone();
+  smv.snapshots = A4.saveSnapshot(smv, "2026-06-04");
+  smv.tmi["marsden-park"].goals = [1,1,1,1,1,1,1,1,1,1];
+  var mvSaved = A4.movementVs(smv.snapshots[smv.snapshots.length - 1], A4.computeScores(smv));
+  assertEq("movement vs saved snapshot",
+    [mvSaved["marsden-park"].scoreDelta, mvSaved["marsden-park"].rankDelta,
+     mvSaved["quakers-hill"].rankDelta],
+    [50, 2, -1]);
 }
 // === END CASES ===
 
