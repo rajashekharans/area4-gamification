@@ -2468,6 +2468,7 @@ async function requestMinutesExtraction(main, button) {
   form.append("clubId", club.id);
   form.append("clubName", club.name);
   form.append("meetingDate", dateEl && dateEl.value ? dateEl.value : localToday());
+  var rawUploadFile = null;
 
   button.disabled = true;
   button.textContent = "Extracting...";
@@ -2485,6 +2486,7 @@ async function requestMinutesExtraction(main, button) {
         return;
       } else {
         form.append("file", file);
+        rawUploadFile = file;
       }
     }
     var combinedText = [text, fileText].map(function (v) {
@@ -2492,14 +2494,23 @@ async function requestMinutesExtraction(main, button) {
     }).filter(Boolean).join("\n\n");
     if (combinedText) form.append("text", combinedText);
 
+    var requestBody = rawUploadFile ? form : JSON.stringify({
+      clubId: club.id,
+      clubName: club.name,
+      meetingDate: dateEl && dateEl.value ? dateEl.value : localToday(),
+      text: combinedText
+    });
+    var headers = {
+      "x-area4-club-id": club.id,
+      "x-area4-club-name": club.name,
+      "x-area4-meeting-date": dateEl && dateEl.value ? dateEl.value : localToday()
+    };
+    if (!rawUploadFile) headers["Content-Type"] = "application/json";
+
     var res = await fetch("/api/extract-minutes", {
       method: "POST",
-      headers: {
-        "x-area4-club-id": club.id,
-        "x-area4-club-name": club.name,
-        "x-area4-meeting-date": dateEl && dateEl.value ? dateEl.value : localToday()
-      },
-      body: form
+      headers: headers,
+      body: requestBody
     });
     var data = await res.json().catch(function () {
       return { ok: false, error: "Minutes extraction did not return JSON." };

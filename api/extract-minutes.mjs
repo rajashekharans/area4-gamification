@@ -76,6 +76,11 @@ function parseMultipart(buffer, contentType) {
   return { fields, file };
 }
 
+function parseJsonBody(buffer) {
+  const fields = JSON.parse(buffer.toString("utf8") || "{}");
+  return { fields, file: null };
+}
+
 function inputTypeFor(file, hasText) {
   if (!file) return hasText ? "text" : "unknown";
   const filename = String(file.filename || "").toLowerCase();
@@ -93,7 +98,10 @@ export default async function handler(req, res) {
 
   try {
     const body = await readBody(req);
-    const { fields, file } = parseMultipart(body, req.headers["content-type"]);
+    const contentType = req.headers["content-type"] || "";
+    const { fields, file } = contentType.toLowerCase().includes("application/json")
+      ? parseJsonBody(body)
+      : parseMultipart(body, contentType);
     const requestParts = mergeRequestFallbacks({
       clubId: fields.clubId,
       clubName: fields.clubName,

@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
 import {
+  buildGatewayRequestBody,
   extractMinutesWithAI,
   extractTextFromFile,
   mergeRequestFallbacks,
+  parseGatewayContent,
   validateRequestParts
 } from "../api/minutes-extraction-core.mjs";
 
@@ -118,6 +120,29 @@ assert.deepEqual(
     clubName: "Quakers Hill Toastmasters",
     meetingDate: "2026-06-11",
     text: "Guests attended"
+  }
+);
+
+const gatewayBody = buildGatewayRequestBody({
+  source: {
+    clubId: "quakers-hill",
+    clubName: "Quakers Hill Toastmasters",
+    meetingDate: "2026-06-11",
+    inputType: "text"
+  },
+  text: "Visitors: Narmada, Mani, Bhavik",
+  model: "openai/gpt-5.4"
+});
+assert.equal(gatewayBody.model, "openai/gpt-5.4");
+assert.equal("response_format" in gatewayBody, false);
+assert.equal(gatewayBody.messages[0].role, "system");
+assert.ok(gatewayBody.messages[1].content.includes("Return JSON only"));
+
+assert.deepEqual(
+  parseGatewayContent('Here is the JSON:\n{"guests":{"count":3,"names":["Narmada","Mani","Bhavik"]},"confidence":{"overall":"high","needsReview":[]}}'),
+  {
+    guests: { count: 3, names: ["Narmada", "Mani", "Bhavik"] },
+    confidence: { overall: "high", needsReview: [] }
   }
 );
 

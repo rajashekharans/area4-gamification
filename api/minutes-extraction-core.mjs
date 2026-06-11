@@ -237,7 +237,8 @@ function normalizeConfidence(raw) {
 function buildPrompt({ source, text }) {
   return [
     "Extract Toastmasters club meeting engagement data from these minutes.",
-    "Return only valid JSON with these keys: attendancePct, meetings, guests { count, names }, visitorsBecameMembers, memberVisits, awards, eventParticipation, confidence { overall, needsReview }.",
+    "Return JSON only. Do not include markdown, explanation, or code fences.",
+    "Use these keys: attendancePct, meetings, guests { count, names }, visitorsBecameMembers, memberVisits, awards, eventParticipation, confidence { overall, needsReview }.",
     "Only include Area, Division, or District awards/events. Keep club visitors separate from club members visiting other clubs.",
     "Names must match the minutes text where possible. If uncertain, add a needsReview note.",
     `Club: ${source.clubName}`,
@@ -245,6 +246,44 @@ function buildPrompt({ source, text }) {
     "",
     text
   ].join("\n");
+}
+
+export function buildGatewayRequestBody({ source, text, model = DEFAULT_MODEL }) {
+  return {
+    model,
+    messages: [
+      {
+        role: "system",
+        content: "You extract structured JSON from Toastmasters minutes. Return JSON only."
+      },
+      { role: "user", content: buildPrompt({ source, text }) }
+    ]
+  };
+}
+
+export function parseGatewayContent(content) {
+  const raw = cleanText(content);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(raw.slice(start, end + 1));
+    }
+    throw new Error("AI Gateway returned non-JSON extraction content.");
+  }
+}
+
+function gatewayErrorText(status, bodyText) {
+  let message = cleanText(bodyText);
+  try {
+    const parsed = JSON.parse(message);
+    message = parsed?.error?.message || parsed?.message || JSON.stringify(parsed);
+  } catch {
+    // Preserve plain-text provider errors.
+  }
+  return `AI Gateway request failed with status ${status}${message ? `: ${message}` : "."}`;
 }
 
 async function callGateway({ source, text }) {
@@ -258,23 +297,20 @@ async function callGateway({ source, text }) {
       "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model: process.env.AI_GATEWAY_MODEL || DEFAULT_MODEL,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: "You extract structured JSON from Toastmasters minutes." },
-        { role: "user", content: buildPrompt({ source, text }) }
-      ]
-    })
+    body: JSON.stringify(buildGatewayRequestBody({
+      source,
+      text,
+      model: process.env.AI_GATEWAY_MODEL || DEFAULT_MODEL
+    }))
   });
 
   if (!response.ok) {
-    throw new Error(`AI Gateway request failed with status ${response.status}.`);
+    throw new Error(gatewayErrorText(response.status, await response.text()));
   }
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error("AI Gateway returned no extraction content.");
-  return JSON.parse(content);
+  return parseGatewayContent(content);
 }
 
 export async function extractMinutesWithAI({ clubId, clubName, meetingDate, inputType, text, generate = callGateway }) {
