@@ -24,13 +24,15 @@ The app seed roster also includes Holroyd. Automation must not silently remove o
 - Pull current Area 20 Club Performance data automatically without requiring the Area Director to download/upload CSV every week.
 - Keep CSV upload as the fallback path.
 - Reuse the existing preview-confirm flow so fetched data is never applied silently.
+- Create a snapshot automatically after any confirmed TMI import is applied, so refreshes build the history required to show club progress.
+- Surface club progress in both places users naturally look: compact progress in expanded leaderboard cards and detailed progress on the Trends screen.
 - Make generated data auditable in git.
 
 ## Non-Goals
 
 - No backend database, accounts, auth, or hosted admin service.
 - No client-side scraping of Toastmasters pages from the browser.
-- No automatic weekly snapshot after refresh; the Area Director still presses "Save weekly snapshot" after reviewing data.
+- No automatic snapshot before user review. TMI data and the matching snapshot are saved only after the import preview is confirmed.
 - No automatic roster migration. Missing/unmatched clubs are reported, not silently added or deleted.
 
 ## Architecture
@@ -115,7 +117,7 @@ Change the TMI screen refresh button order:
 2. Validate `schemaVersion === 1` and `clubs` is an array.
 3. Convert the generated JSON into the existing `mapTmiCsv`-style result shape: `{ updates, matched, unmatchedClubs, unmappedFields, skippedRows }`.
 4. Open the existing results Sheet.
-5. Confirm applies `applyTmiUpdates`; Cancel discards.
+5. Confirm applies `applyTmiUpdates`, then immediately saves a snapshot for `localToday()` using the updated state. Cancel discards both the TMI update and the snapshot.
 6. If generated JSON is missing, stale, malformed, or no app clubs match, fall back to the current Toastmasters CSV fetch/upload path and FileDrop instructions.
 
 The generated-data path matches clubs using the existing club matching rules:
@@ -124,6 +126,44 @@ The generated-data path matches clubs using the existing club matching rules:
 - normalized name fallback
 
 This means Prospect Phoenix should now match by number once the app seed/config has `4875`; until then it can still match by normalized name.
+
+### Auto-Snapshot Behavior
+
+Snapshots are local browser state, so the GitHub Action cannot create user snapshots. The app creates the snapshot only after the Area Director confirms an import preview.
+
+- Generated `data/tmi-area20.json` refresh: apply updates, then save today's snapshot automatically.
+- Legacy direct CSV network fetch, if it succeeds: apply updates, then save today's snapshot automatically.
+- Manual FileDrop upload: apply updates, then save today's snapshot automatically.
+- Same-date snapshots keep the existing contract: saving again on the same `YYYY-MM-DD` replaces that day's snapshot rather than appending a duplicate.
+- Snapshot cap remains 60.
+- The success Toast should mention both actions, for example "TMI data applied to 5 clubs and today's snapshot saved."
+
+### Club Progress Views
+
+Automatic snapshots are useful only if the app turns them into visible progress. Add two progress surfaces backed by the existing `snapshots` array.
+
+Leaderboard expanded card:
+
+- Keep the existing category breakdown.
+- Add a compact "Progress" section below the breakdown.
+- If there is at least one snapshot, show latest-snapshot movement for the club: total score delta and rank delta using the same positive-up convention already used by `movementVs`.
+- If there are at least two snapshots, show recent progress across the available window, capped at the latest four snapshots: first-to-last score delta and first-to-last rank delta.
+- If there are no snapshots, show a short empty state telling the user that progress appears after a TMI refresh or manual snapshot.
+
+Trends screen:
+
+- Keep the all-club trend chart/table.
+- Add a club selector below the all-club chart.
+- For the selected club, show a detailed progress panel with current total, latest snapshot delta, recent four-snapshot delta, and category changes from the first to last snapshot in the recent window.
+- Add a per-club snapshot history list showing date, total, rank, and category totals for that club.
+- The detailed progress panel must work without Chart.js; it is ordinary HTML and does not depend on the chart library.
+
+Progress calculations:
+
+- Use snapshot `scores[clubId]` entries already created by `saveSnapshot`; do not invent a second history store.
+- Missing club scores in old/imported snapshots are tolerated and skipped.
+- Same-day replacement keeps progress from being polluted by multiple refreshes on the same day.
+- No progress calculation mutates state.
 
 ### Roster Mismatch Behavior
 
@@ -160,6 +200,8 @@ Automated tests:
 - Verify all five Area 20 clubs are parsed.
 - Verify generated JSON converts to the app update shape.
 - Verify app refresh validation rejects malformed generated JSON.
+- Verify auto-snapshot after confirmed import uses updated scores and same-date replacement.
+- Verify progress helpers return latest delta, recent-window delta, and tolerate missing club snapshots.
 - Keep the existing `tests.html` headless suite green.
 
 Manual verification:
@@ -167,6 +209,7 @@ Manual verification:
 - Run the update script locally or in GitHub Actions and inspect `data/tmi-area20.json`.
 - Serve the app over HTTP, click Refresh from TMI, confirm the preview references Area 20/future Area 4, then apply.
 - Confirm matching clubs update and Holroyd remains unchanged with a missing-data note.
+- Confirm the success Toast says a snapshot was saved, the Trends screen shows the new club-progress panel, and an expanded leaderboard card shows progress after refresh.
 
 ## Compatibility Constraint
 
