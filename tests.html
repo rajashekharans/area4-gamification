@@ -285,6 +285,21 @@ function runCases(A4, assertEq) {
     [stApply.tmi["marsden-park"].current, stApply.tmi["marsden-park"].distinguished], [18, ""]);
   assertEq("applyTmiUpdates: returns a NEW tmi slice",
     applied.tmi !== stApply.tmi && applied.tmi["quakers-hill"] !== stApply.tmi["quakers-hill"], true);
+
+  // --- Phase 3: extractMinutes (4 positive + 1 negative plan-doc cases) ---
+  assertEq("extractMinutes: of-form attendance + guests + conversion",
+    A4.extractMinutes("12 of 18 members attended, 3 guests, 1 guest joined"),
+    { attendancePct: 67, guests: 3, conversions: 1 });
+  assertEq("extractMinutes: bare percent",
+    A4.extractMinutes("Attendance was 80%"), { attendancePct: 80 });
+  assertEq("extractMinutes: meetings + guests",
+    A4.extractMinutes("We held 4 meetings this month with 5 guests"),
+    { guests: 5, meetings: 4 }); // key order follows extractor insertion (JSON compare)
+  assertEq("extractMinutes: new member + percent attendance",
+    A4.extractMinutes("1 new member joined after 90% attendance"),
+    { attendancePct: 90, conversions: 1 });
+  assertEq("extractMinutes: nothing found -> empty object",
+    A4.extractMinutes("The committee discussed the agenda at length."), {});
 }
 // === END CASES ===
 

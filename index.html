@@ -48,6 +48,7 @@
   /* Structural helper tokens (raw values live only in :root) */
   --border-thin: 1px;
   --duration-fast: 200ms; /* phase design: breakdown transition cap <= 200ms */
+  --duration-flash: 1500ms; /* extract-prefill yellow fade (Phase 3) */
 }
 
 /* Base / reset */
@@ -505,6 +506,37 @@ main#screen {
   color: var(--color-primary);
 }
 .file-drop-zone input { display: none; }
+
+/* Manual Entry — minutes helper */
+.btn-accent-outline {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  border: var(--border-thin) solid var(--color-accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+.minutes-text {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--space-6) * 3);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+/* Extract-prefill flash: yellow fading back to normal, runs once. */
+@keyframes field-flash {
+  from { background-color: var(--color-yellow); }
+  to { background-color: var(--color-surface); }
+}
+.flash { animation: field-flash var(--duration-flash) ease-out; }
 </style>
 </head>
 <body>
@@ -992,6 +1024,40 @@ function applyTmiUpdates(state, updates) {
   return { tmi: tmi, lastTmiSync: new Date().toISOString() };
 }
 
+// ---- Phase 3: paste-minutes quick-parse helper (pure, DOM-free) ----
+// Extracts club-health values from pasted minutes text. Keys present only
+// when found; empty object when nothing matches (drives the nothing-found
+// Toast in the UI). Regexes per the Phase 3 plan, case-insensitive.
+function extractMinutes(text) {
+  var s = String(text === null || text === undefined ? "" : text);
+  var out = {};
+  var m;
+
+  // Attendance: "80%" form first, then "12 of 18 members" / "12/18 members"
+  // (converted to a rounded whole percent). Clamped 0-100 either way.
+  m = /(\d{1,3})\s*%/i.exec(s);
+  if (m) {
+    out.attendancePct = Math.min(100, Math.max(0, parseInt(m[1], 10)));
+  } else {
+    m = /(\d+)\s*(?:of|\/)\s*(\d+)\s*members/i.exec(s);
+    if (m && parseInt(m[2], 10) > 0) {
+      out.attendancePct = Math.min(100, Math.max(0,
+        Math.round(parseInt(m[1], 10) / parseInt(m[2], 10) * 100)));
+    }
+  }
+
+  m = /(\d+)\s*guests?/i.exec(s);
+  if (m) out.guests = parseInt(m[1], 10);
+
+  m = /(\d+)\s*(?:guests?\s*)?(?:joined|converted|new member)/i.exec(s);
+  if (m) out.conversions = parseInt(m[1], 10);
+
+  m = /(\d+)\s*meetings?/i.exec(s);
+  if (m) out.meetings = parseInt(m[1], 10);
+
+  return out;
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
@@ -1002,7 +1068,8 @@ window.A4 = {
   saveSnapshot: saveSnapshot,
   parseCsv: parseCsv,
   mapTmiCsv: mapTmiCsv,
-  applyTmiUpdates: applyTmiUpdates
+  applyTmiUpdates: applyTmiUpdates,
+  extractMinutes: extractMinutes
 };
 
 // === UI ===
@@ -1577,8 +1644,111 @@ function bindTmiSyncPanel(main, state) {
   });
 }
 
+// ---- Manual Entry screen (Awards + Club Health + minutes helper) ----
+
+var AWARD_ROWS = [
+  ["smedley", "Smedley Award"],
+  ["talkUp", "Talk Up Toastmasters"],
+  ["beatTheClock", "Beat the Clock"],
+  ["tripleCrowns", "Triple Crowns"],
+  ["areaWins", "Area contest wins"],
+  ["divWins", "Division contest wins"],
+  ["distWins", "District contest wins"]
+];
+
+var HEALTH_LABELS = {
+  attendancePct: "Avg attendance %",
+  guests: "Guests",
+  conversions: "Conversions",
+  meetings: "Meetings held"
+};
+
 function renderManual(main, state) {
-  main.innerHTML = screenStub("Manual Entry", "Awards and club health entry arrives in Phase 3.");
+  ensureSelectedClub(state);
+  var a = state.awards[selectedClubId];
+  var h = state.health[selectedClubId];
+
+  main.innerHTML =
+    '<h2 class="screen-title">Manual Entry</h2>' +
+    clubPickerHtml(state) +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">Awards</h3>' +
+      AWARD_ROWS.map(function (row) {
+        return formRow(row[1], stepperHtml({
+          key: "awards:" + row[0], value: a[row[0]], min: 0, max: 999, label: row[1]
+        }));
+      }).join("") +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">Club Health</h3>' +
+      formRow("Meetings held", stepperHtml({
+        key: "health:meetings", value: h.meetings, min: 0, max: 999, label: "Meetings held"
+      })) +
+      formRow("Avg attendance",
+        '<span class="input-suffix">' +
+          '<input class="num-input" inputmode="numeric" data-health-num="attendancePct" value="' +
+            h.attendancePct + '" aria-label="Average attendance percent">' +
+          '<span class="suffix">%</span>' +
+        '</span>') +
+      formRow("Guests", stepperHtml({
+        key: "health:guests", value: h.guests, min: 0, max: 999, label: "Guests"
+      })) +
+      formRow("Conversions", stepperHtml({
+        key: "health:conversions", value: h.conversions, min: 0, max: 999, label: "Conversions"
+      })) +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">Minutes helper</h3>' +
+      '<textarea class="minutes-text" data-minutes placeholder="Paste meeting minutes here…"></textarea>' +
+      '<button type="button" class="btn-accent-outline btn-block" data-extract>Extract from minutes</button>' +
+    '</section>';
+
+  bindClubPicker(main);
+
+  // Attendance clamps 0-100 before the state write.
+  main.querySelector("[data-health-num]").addEventListener("change", function (e) {
+    var v = clampNum(e.target.value, 0, 100);
+    update(function (s) { s.health[selectedClubId].attendancePct = v; });
+  });
+
+  bindSteppers(main, function (key, v) {
+    var parts = key.split(":"); // "awards:smedley" / "health:guests"
+    update(function (s) { s[parts[0]][selectedClubId][parts[1]] = v; });
+  });
+
+  // Extract flow: Sheet preview, then DOM-ONLY prefill + yellow flash — no
+  // state write until the user confirms each value via the normal inputs.
+  main.querySelector("[data-extract]").addEventListener("click", function () {
+    var found = extractMinutes(main.querySelector("[data-minutes]").value);
+    var keys = Object.keys(found);
+    if (keys.length === 0) {
+      showToast("Nothing found in that text");
+      return;
+    }
+    var rows = keys.map(function (k) {
+      return '<div class="sheet-row"><span>' + esc(HEALTH_LABELS[k]) +
+        '</span><span class="row-total">' + found[k] + '</span></div>';
+    }).join("");
+    openSheet({
+      title: "Found in minutes",
+      bodyHtml:
+        '<p class="sheet-label">Pre-fills the Club Health form for review — ' +
+          'nothing saves until you confirm each value.</p>' + rows,
+      confirmLabel: "Pre-fill",
+      onConfirm: function () {
+        keys.forEach(function (k) {
+          var el = k === "attendancePct"
+            ? main.querySelector('[data-health-num="attendancePct"]')
+            : main.querySelector('[data-stepper="health:' + k + '"] .step-value');
+          if (!el) return;
+          el.value = found[k];
+          el.classList.remove("flash");
+          void el.offsetWidth; // restart the one-shot animation
+          el.classList.add("flash");
+        });
+      }
+    });
+  });
 }
 
 function renderTrends(main, state) {
