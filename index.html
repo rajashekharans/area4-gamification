@@ -537,6 +537,80 @@ main#screen {
   to { background-color: var(--color-surface); }
 }
 .flash { animation: field-flash var(--duration-flash) ease-out; }
+
+/* Trends — chart card, offline fallback table, snapshot history */
+.chart-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.empty-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.chart-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+/* Fallback table scrolls inside its wrapper, never the page (B5 narrow-viewport rule). */
+.trend-table-wrap { overflow-x: auto; }
+.trend-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-sm);
+}
+.trend-table th {
+  font-weight: 600;
+  text-align: right;
+  padding: var(--space-2);
+  white-space: nowrap;
+}
+.trend-table td {
+  text-align: right;
+  padding: var(--space-2);
+  border-top: var(--border-thin) solid color-mix(in srgb, var(--color-gray) 30%, transparent);
+  white-space: nowrap;
+}
+.trend-table th:first-child,
+.trend-table td:first-child { text-align: left; }
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.history-info { flex: 1; min-width: 0; }
+.history-date { font-weight: 600; }
+.history-clubs {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.history-total {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.history-delete {
+  flex: none;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-error);
+  /* B5 touch-target minimum from spacing tokens */
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -1751,8 +1825,147 @@ function renderManual(main, state) {
   });
 }
 
+// ---- Trends screen (Phase 4) ----
+
+// Fixed 6-entry series palette — phase-design token order (single source of
+// truth); values read from :root at render time, never hardcoded in JS.
+var TREND_PALETTE_TOKENS = [
+  "--color-primary", "--color-accent", "--color-gold",
+  "--color-success", "--color-silver", "--color-bronze"
+];
+
+// UI-local Chart.js instance: destroyed before every rebuild so repeated
+// update()/tab re-renders never leak canvases (phase design).
+var trendChart = null;
+
+// Compact display label for tight rows/headers: trailing
+// "Toastmasters"/"Club" words dropped (display-only; CORE matching uses
+// its own normalizeClubName).
+function shortClubName(name) {
+  return String(name).replace(/\s+(toastmasters|club)\s*$/i, "");
+}
+
 function renderTrends(main, state) {
-  main.innerHTML = screenStub("Trends", "Weekly score trends arrive in Phase 4.");
+  // Destroy-before-rebuild: this path is hot (every update() re-render).
+  if (trendChart) {
+    trendChart.destroy();
+    trendChart = null;
+  }
+
+  var snaps = state.snapshots;
+  var clubs = state.config.clubs;
+
+  if (snaps.length === 0) {
+    main.innerHTML = '<h2 class="screen-title">Trends</h2>' +
+      '<div class="empty-card">No snapshots yet — save one from the Leaderboard</div>';
+    return;
+  }
+
+  var hasChart = typeof window.Chart === "function";
+  var chartCardHtml;
+  if (hasChart) {
+    chartCardHtml = '<section class="chart-card"><canvas data-trend-canvas></canvas></section>';
+  } else {
+    // CDN unreachable: the SAME snapshot data as a table that scrolls inside
+    // its own wrapper (B5 offline tolerance; no page-level overflow).
+    var headRow = '<tr><th scope="col">Date</th>' + clubs.map(function (club) {
+      return '<th scope="col">' + esc(shortClubName(club.name)) + '</th>';
+    }).join("") + '</tr>';
+    var bodyRows = snaps.map(function (snap) {
+      return '<tr><td>' + esc(snap.date) + '</td>' + clubs.map(function (club) {
+        var sc = snap.scores[club.id];
+        return '<td>' + (sc ? sc.total : "—") + '</td>';
+      }).join("") + '</tr>';
+    }).join("");
+    chartCardHtml =
+      '<section class="chart-card">' +
+        '<div class="trend-table-wrap"><table class="trend-table">' +
+          '<thead>' + headRow + '</thead><tbody>' + bodyRows + '</tbody>' +
+        '</table></div>' +
+        '<p class="chart-note">The line chart needs a network connection once to load — scores above are the same data.</p>' +
+      '</section>';
+  }
+
+  // Snapshot history, newest first: date + per-club totals + Area total +
+  // Sheet-gated delete (ROADMAP criterion 2).
+  var historyHtml = snaps.slice().reverse().map(function (snap) {
+    var clubTotals = clubs.map(function (club) {
+      var sc = snap.scores[club.id];
+      return esc(shortClubName(club.name)) + " " + (sc ? sc.total : "—");
+    }).join(" · ");
+    return '<div class="history-row">' +
+      '<div class="history-info">' +
+        '<div class="history-date">' + esc(snap.date) + '</div>' +
+        '<div class="history-clubs">' + clubTotals + '</div>' +
+      '</div>' +
+      '<div class="history-total">' + areaTotals(snap.scores) + '</div>' +
+      '<button type="button" class="history-delete" data-del-snap="' + esc(snap.date) +
+        '" aria-label="Delete snapshot ' + esc(snap.date) + '">Delete</button>' +
+    '</div>';
+  }).join("");
+
+  main.innerHTML = '<h2 class="screen-title">Trends</h2>' + chartCardHtml + historyHtml;
+
+  if (hasChart) {
+    // Series colors + legend size read from the live tokens at render time.
+    var rootStyles = getComputedStyle(document.documentElement);
+    var colors = TREND_PALETTE_TOKENS.map(function (token) {
+      return rootStyles.getPropertyValue(token).trim();
+    });
+    var legendFontSize = parseInt(rootStyles.getPropertyValue("--font-size-xs"), 10);
+
+    trendChart = new Chart(main.querySelector("[data-trend-canvas]"), {
+      type: "line",
+      data: {
+        labels: snaps.map(function (snap) { return snap.date; }),
+        datasets: clubs.map(function (club, i) {
+          var color = colors[i % colors.length];
+          return {
+            label: shortClubName(club.name),
+            data: snaps.map(function (snap) {
+              return snap.scores[club.id] ? snap.scores[club.id].total : null;
+            }),
+            borderColor: color,
+            backgroundColor: color
+          };
+        })
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: { font: { size: legendFontSize } }
+          }
+        }
+      }
+    });
+  }
+
+  main.querySelectorAll("[data-del-snap]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var date = btn.dataset.delSnap;
+      var snap = state.snapshots.filter(function (sn) { return sn.date === date; })[0];
+      if (!snap) return;
+      openSheet({
+        title: "Delete snapshot " + date + "?",
+        bodyHtml:
+          '<div class="sheet-row"><span>Snapshot date</span>' +
+            '<span class="row-total">' + esc(date) + '</span></div>' +
+          '<div class="sheet-row"><span>Area total</span>' +
+            '<span class="row-total">' + areaTotals(snap.scores) + '</span></div>',
+        confirmLabel: "Delete",
+        onConfirm: function () {
+          // Single mutation path; leaderboard movement now compares against
+          // the new latest snapshot automatically.
+          update(function (s) {
+            s.snapshots = s.snapshots.filter(function (sn) { return sn.date !== date; });
+          });
+          showToast("Snapshot " + date + " deleted");
+        }
+      });
+    });
+  });
 }
 
 function renderSettings(main, state) {
