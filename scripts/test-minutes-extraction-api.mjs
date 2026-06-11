@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { Readable } from "node:stream";
 import { deflateRawSync } from "node:zlib";
+import handler from "../api/extract-minutes.mjs";
 import {
   buildGatewayRequestBody,
   extractMinutesWithAI,
@@ -145,6 +147,35 @@ assert.deepEqual(
     confidence: { overall: "high", needsReview: [] }
   }
 );
+
+{
+  const previousGatewayKey = process.env.AI_GATEWAY_API_KEY;
+  const previousOidc = process.env.VERCEL_OIDC_TOKEN;
+  delete process.env.AI_GATEWAY_API_KEY;
+  delete process.env.VERCEL_OIDC_TOKEN;
+  const req = Readable.from([]);
+  req.method = "POST";
+  req.headers = { "content-type": "application/json" };
+  req.body = {
+    clubId: "marsden-park",
+    clubName: "Marsden Park Toastmasters",
+    meetingDate: "2026-06-11",
+    text: "Visitors: Narmada, Mani, Bhavik, Seerisha, Amit"
+  };
+  const chunks = [];
+  const res = {
+    statusCode: 0,
+    setHeader() {},
+    end(value) { chunks.push(String(value)); }
+  };
+  await handler(req, res);
+  assert.equal(res.statusCode, 500);
+  assert.equal(JSON.parse(chunks.join("")).error, "AI Gateway is not configured. Set AI_GATEWAY_API_KEY in Vercel.");
+  if (previousGatewayKey === undefined) delete process.env.AI_GATEWAY_API_KEY;
+  else process.env.AI_GATEWAY_API_KEY = previousGatewayKey;
+  if (previousOidc === undefined) delete process.env.VERCEL_OIDC_TOKEN;
+  else process.env.VERCEL_OIDC_TOKEN = previousOidc;
+}
 
 assert.equal(
   await extractTextFromFile({

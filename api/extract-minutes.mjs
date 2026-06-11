@@ -18,6 +18,11 @@ function sendJson(res, status, body) {
 }
 
 async function readBody(req) {
+  if (req.body !== undefined && req.body !== null) {
+    if (Buffer.isBuffer(req.body)) return req.body;
+    if (typeof req.body === "string") return Buffer.from(req.body);
+    if (typeof req.body === "object") return Buffer.from(JSON.stringify(req.body));
+  }
   const chunks = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks);
