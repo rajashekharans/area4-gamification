@@ -808,6 +808,8 @@ function saveState(state) {
   }
 }
 
+var CATEGORY_KEYS = ["dcp", "dist", "membership", "admin", "awards", "health"];
+
 // Scoring engine — pure, replicates the Area 4 Excel workbook exactly
 // (design.md B2). Returns { [clubId]: { breakdown, total, rank } }.
 function computeScores(state) {
@@ -905,6 +907,40 @@ function saveSnapshot(state, date) {
   }
   while (next.length > 60) next.shift();
   return next;
+}
+
+function clubProgress(state, clubId, currentScores) {
+  var snapshots = (Array.isArray(state.snapshots) ? state.snapshots : [])
+    .filter(function (snap) {
+      return snap && snap.scores && snap.scores[clubId];
+    });
+  var current = currentScores && currentScores[clubId];
+  var latestSnap = snapshots.length ? snapshots[snapshots.length - 1] : null;
+  var latestScore = latestSnap ? latestSnap.scores[clubId] : null;
+  var latest = latestScore && current
+    ? { scoreDelta: current.total - latestScore.total, rankDelta: latestScore.rank - current.rank, date: latestSnap.date }
+    : { scoreDelta: 0, rankDelta: null, date: null };
+
+  var recentWindow = snapshots.slice(-4);
+  var first = recentWindow[0] && recentWindow[0].scores[clubId];
+  var last = recentWindow[recentWindow.length - 1] && recentWindow[recentWindow.length - 1].scores[clubId];
+  var recent = first && last && recentWindow.length >= 2
+    ? {
+        scoreDelta: last.total - first.total,
+        rankDelta: first.rank - last.rank,
+        count: recentWindow.length,
+        fromDate: recentWindow[0].date,
+        toDate: recentWindow[recentWindow.length - 1].date
+      }
+    : { scoreDelta: 0, rankDelta: null, count: recentWindow.length, fromDate: null, toDate: null };
+
+  var categoryDelta = {};
+  CATEGORY_KEYS.forEach(function (key) {
+    categoryDelta[key] = first && last ? last.breakdown[key] - first.breakdown[key] : 0;
+  });
+  recent.categoryDelta = categoryDelta;
+
+  return { latest: latest, recent: recent, snapshots: snapshots };
 }
 
 // ---- Phase 3: TMI CSV ingestion (pure, DOM-free — design B4, LOCKED) ----
@@ -1171,6 +1207,97 @@ function applyTmiUpdates(state, updates) {
   return { tmi: tmi, lastTmiSync: new Date().toISOString() };
 }
 
+function validateGeneratedTmi(obj) {
+  if (!isPlainObject(obj)) return { ok: false, errors: ["Generated TMI data is not an object."] };
+  var errors = [];
+  if (obj.schemaVersion !== 1) errors.push("Generated TMI schema must be version 1.");
+  if (!Array.isArray(obj.clubs)) errors.push("Generated TMI clubs must be a list.");
+  if (!isPlainObject(obj.source)) errors.push("Generated TMI source metadata is missing.");
+  if (Array.isArray(obj.clubs)) {
+    obj.clubs.forEach(function (club, i) {
+      if (!isPlainObject(club)) {
+        errors.push("Generated club " + (i + 1) + " is not an object.");
+      } else if (typeof club.clubName !== "string" || !isPlainObject(club.tmi)) {
+        errors.push("Generated club " + (i + 1) + " needs clubName and tmi.");
+      }
+    });
+  }
+  return errors.length ? { ok: false, errors: errors } : { ok: true, errors: [] };
+}
+
+function clampGeneratedNum(v, min, max) {
+  var n = Math.round(Number(v));
+  if (!isFinite(n)) n = min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function mapGeneratedTmi(payload, state) {
+  var valid = validateGeneratedTmi(payload);
+  var result = {
+    updates: {},
+    matched: [],
+    unmatchedClubs: [],
+    unmappedFields: [],
+    skippedRows: [],
+    missingAppClubs: [],
+    source: payload && payload.source ? payload.source : null,
+    generated: true
+  };
+  if (!valid.ok) {
+    result.skippedRows = valid.errors.map(function (error) {
+      return { rowIndex: -1, reason: error };
+    });
+    return result;
+  }
+
+  var seen = {};
+  payload.clubs.forEach(function (row, idx) {
+    try {
+      var club = null;
+      var rowNum = normalizeClubNumber(row.clubNumber);
+      if (rowNum !== "") {
+        club = state.config.clubs.filter(function (c) {
+          return c.clubNumber !== null && normalizeClubNumber(c.clubNumber) === rowNum;
+        })[0] || null;
+      }
+      if (!club) {
+        var rowName = normalizeClubName(row.clubName);
+        club = state.config.clubs.filter(function (c) {
+          return normalizeClubName(c.name) === rowName;
+        })[0] || null;
+      }
+      if (!club) {
+        result.unmatchedClubs.push(row.clubName || "(generated row " + (idx + 1) + ")");
+        return;
+      }
+
+      var t = row.tmi;
+      result.updates[club.id] = {
+        base: clampGeneratedNum(t.base, 0, 500),
+        current: clampGeneratedNum(t.current, 0, 500),
+        goals: Array.isArray(t.goals)
+          ? t.goals.slice(0, 10).map(function (g) { return g ? 1 : 0; })
+          : [0,0,0,0,0,0,0,0,0,0],
+        distinguished: t.distinguished === "P" || t.distinguished === "S" || t.distinguished === "D" ? t.distinguished : "",
+        duesOct: t.duesOct ? 1 : 0,
+        duesApr: t.duesApr ? 1 : 0,
+        officerList: t.officerList ? 1 : 0,
+        cotRounds: clampGeneratedNum(t.cotRounds, 0, 2)
+      };
+      while (result.updates[club.id].goals.length < 10) result.updates[club.id].goals.push(0);
+      result.matched.push(club.id);
+      seen[club.id] = true;
+    } catch (e) {
+      result.skippedRows.push({ rowIndex: idx, reason: String(e && e.message ? e.message : e) });
+    }
+  });
+
+  state.config.clubs.forEach(function (club) {
+    if (!seen[club.id]) result.missingAppClubs.push(club.id);
+  });
+  return result;
+}
+
 // ---- Phase 3: paste-minutes quick-parse helper (pure, DOM-free) ----
 // Extracts club-health values from pasted minutes text. Keys present only
 // when found; empty object when nothing matches (drives the nothing-found
@@ -1261,9 +1388,12 @@ window.A4 = {
   movementVs: movementVs,
   areaTotals: areaTotals,
   saveSnapshot: saveSnapshot,
+  clubProgress: clubProgress,
   parseCsv: parseCsv,
   mapTmiCsv: mapTmiCsv,
   applyTmiUpdates: applyTmiUpdates,
+  validateGeneratedTmi: validateGeneratedTmi,
+  mapGeneratedTmi: mapGeneratedTmi,
   extractMinutes: extractMinutes,
   validateImport: validateImport
 };

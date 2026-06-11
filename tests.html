@@ -301,6 +301,57 @@ function runCases(A4, assertEq) {
   assertEq("extractMinutes: nothing found -> empty object",
     A4.extractMinutes("The committee discussed the agenda at length."), {});
 
+  // --- TMI Area 20 generated JSON mapping ---
+  var gen = {
+    schemaVersion: 1,
+    source: {
+      district: "90", sourceArea: "20", futureArea: "4",
+      url: "https://dashboards.toastmasters.org/Club.aspx?id=90",
+      fetchedAt: "2026-06-11T00:00:00.000Z",
+      asOf: "As of 16-Apr-2026"
+    },
+    clubs: [
+      { clubNumber: "3378", clubName: "Blacktown City", tmi: { base: 20, current: 18, goals: [1,1,1,1,1,1,1,0,1,1], distinguished: "", duesOct: 1, duesApr: 1, officerList: 1, cotRounds: 2 } },
+      { clubNumber: "4875", clubName: "Prospect Phoenix Toastmasters Club", tmi: { base: 6, current: 8, goals: [0,1,0,1,1,1,0,0,1,1], distinguished: "", duesOct: 1, duesApr: 0, officerList: 1, cotRounds: 2 } },
+      { clubNumber: "9448", clubName: "Quakers Hill Club", tmi: { base: 25, current: 23, goals: [1,1,0,0,1,0,1,1,1,1], distinguished: "S", duesOct: 1, duesApr: 1, officerList: 1, cotRounds: 2 } }
+    ],
+    parseWarnings: []
+  };
+  var genMap = A4.mapGeneratedTmi(gen, DS);
+  assertEq("mapGeneratedTmi: generated JSON maps app clubs by number/name",
+    Object.keys(genMap.updates).sort(),
+    ["blacktown-city", "prospect-phoenix", "quakers-hill"]);
+  assertEq("mapGeneratedTmi: preserves metadata",
+    [genMap.source.sourceArea, genMap.source.futureArea, genMap.source.asOf],
+    ["20", "4", "As of 16-Apr-2026"]);
+  assertEq("mapGeneratedTmi: reports app clubs missing from generated data",
+    genMap.missingAppClubs.sort(),
+    ["holroyd", "marsden-park", "rooty-hill"]);
+
+  assertEq("mapGeneratedTmi: rejects wrong schema",
+    A4.validateGeneratedTmi({ schemaVersion: 99, clubs: [] }).ok, false);
+
+  // --- Progress helpers from snapshots ---
+  var progState = clone();
+  progState.snapshots = A4.saveSnapshot(progState, "2026-06-01");
+  progState.tmi["marsden-park"].goals = [1,1,1,1,1,1,1,1,1,1];
+  progState.snapshots = A4.saveSnapshot(progState, "2026-06-08");
+  progState.tmi["marsden-park"].current = 25;
+  var progScores = A4.computeScores(progState);
+  var prog = A4.clubProgress(progState, "marsden-park", progScores);
+  assertEq("clubProgress: latest snapshot delta uses current scores",
+    [prog.latest.scoreDelta, prog.latest.rankDelta],
+    [19, 0]);
+  assertEq("clubProgress: recent delta uses first-to-last available snapshot",
+    [prog.recent.scoreDelta, prog.recent.rankDelta, prog.recent.count],
+    [50, 2, 2]);
+
+  var missingProgState = clone();
+  missingProgState.snapshots = [{ date: "2026-06-01", scores: {} }];
+  assertEq("clubProgress: tolerates missing club snapshot entries",
+    A4.clubProgress(missingProgState, "marsden-park", A4.computeScores(missingProgState)).recent.count,
+    0);
+
   // --- Phase 4: validateImport (backup-import schema gate) ---
   // Export writes the full AppState, so the default state is its exact shape.
   assertEq("validateImport: accepts exported state shape",
