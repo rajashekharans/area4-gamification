@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node scripts/run-core-tests.mjs && node scripts/test-tmi-area20.mjs && node scripts/test-minutes-extraction-api.mjs",
+    "test": "node scripts/run-core-tests.mjs && node scripts/test-tmi-area20.mjs && node scripts/test-minutes-extraction-api.mjs && node scripts/test-browser-docx-extraction.mjs",
     "test:core": "node scripts/run-core-tests.mjs",
     "test:tmi": "node scripts/test-tmi-area20.mjs",
-    "test:minutes": "node scripts/test-minutes-extraction-api.mjs"
+    "test:minutes": "node scripts/test-minutes-extraction-api.mjs",
+    "test:browser-docx": "node scripts/test-browser-docx-extraction.mjs"
   }
 }

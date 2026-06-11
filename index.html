@@ -1423,6 +1423,81 @@ function cleanPersonName(name) {
   return String(name === null || name === undefined ? "" : name).trim().replace(/\s+/g, " ");
 }
 
+function decodeXmlEntities(value) {
+  return String(value)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function readU16(view, offset) {
+  return view.getUint16(offset, true);
+}
+
+function readU32(view, offset) {
+  return view.getUint32(offset, true);
+}
+
+async function inflateZipData(bytes, method) {
+  if (method === 0) return bytes;
+  if (method !== 8 || typeof DecompressionStream !== "function") {
+    throw new Error("This browser cannot read that DOCX file. Try exporting the minutes as text.");
+  }
+  var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function readZipEntryFromArrayBuffer(arrayBuffer, wantedName) {
+  var bytes = new Uint8Array(arrayBuffer);
+  var view = new DataView(arrayBuffer);
+  var eocd = -1;
+  for (var i = bytes.length - 22; i >= Math.max(0, bytes.length - 66000); i--) {
+    if (readU32(view, i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("Could not read that DOCX file.");
+
+  var entryCount = readU16(view, eocd + 10);
+  var ptr = readU32(view, eocd + 16);
+  var decoder = new TextDecoder("utf-8");
+
+  for (var entry = 0; entry < entryCount; entry++) {
+    if (readU32(view, ptr) !== 0x02014b50) throw new Error("Could not read that DOCX file.");
+    var method = readU16(view, ptr + 10);
+    var compressedSize = readU32(view, ptr + 20);
+    var fileNameLength = readU16(view, ptr + 28);
+    var extraLength = readU16(view, ptr + 30);
+    var commentLength = readU16(view, ptr + 32);
+    var localOffset = readU32(view, ptr + 42);
+    var name = decoder.decode(bytes.slice(ptr + 46, ptr + 46 + fileNameLength));
+
+    if (name === wantedName) {
+      if (readU32(view, localOffset) !== 0x04034b50) throw new Error("Could not read that DOCX file.");
+      var localNameLength = readU16(view, localOffset + 26);
+      var localExtraLength = readU16(view, localOffset + 28);
+      var dataStart = localOffset + 30 + localNameLength + localExtraLength;
+      return inflateZipData(bytes.slice(dataStart, dataStart + compressedSize), method);
+    }
+    ptr += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  throw new Error("Could not find text in that DOCX file.");
+}
+
+async function extractDocxTextFromArrayBuffer(arrayBuffer) {
+  var xmlBytes = await readZipEntryFromArrayBuffer(arrayBuffer, "word/document.xml");
+  var xml = new TextDecoder("utf-8").decode(xmlBytes);
+  var chunks = [];
+  var re = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g;
+  var match;
+  while ((match = re.exec(xml))) chunks.push(decodeXmlEntities(match[1]));
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
+}
+
 function normalizePersonName(name) {
   return cleanPersonName(name).toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -1604,6 +1679,7 @@ window.A4 = {
   mapGeneratedTmi: mapGeneratedTmi,
   extractMinutes: extractMinutes,
   cleanPersonName: cleanPersonName,
+  extractDocxTextFromArrayBuffer: extractDocxTextFromArrayBuffer,
   normalizePersonName: normalizePersonName,
   applyMinutesExtraction: applyMinutesExtraction,
   clubEngagementSummary: clubEngagementSummary,
@@ -2392,12 +2468,30 @@ async function requestMinutesExtraction(main, button) {
   form.append("clubId", club.id);
   form.append("clubName", club.name);
   form.append("meetingDate", dateEl && dateEl.value ? dateEl.value : localToday());
-  if (text) form.append("text", text);
-  if (file) form.append("file", file);
 
   button.disabled = true;
   button.textContent = "Extracting...";
   try {
+    var fileText = "";
+    if (file) {
+      var lowerName = String(file.name || "").toLowerCase();
+      if (lowerName.endsWith(".txt") || String(file.type || "").indexOf("text/") === 0) {
+        fileText = await file.text();
+      } else if (lowerName.endsWith(".docx") ||
+          String(file.type || "").indexOf("wordprocessingml.document") >= 0) {
+        fileText = await extractDocxTextFromArrayBuffer(await file.arrayBuffer());
+      } else if (file.size > 4 * 1024 * 1024) {
+        showToast("That file is too large to upload. Export the minutes as DOCX or text and try again.", "error");
+        return;
+      } else {
+        form.append("file", file);
+      }
+    }
+    var combinedText = [text, fileText].map(function (v) {
+      return String(v || "").trim();
+    }).filter(Boolean).join("\n\n");
+    if (combinedText) form.append("text", combinedText);
+
     var res = await fetch("/api/extract-minutes", {
       method: "POST",
       headers: {
