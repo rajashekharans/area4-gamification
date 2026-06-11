@@ -6,3 +6,10 @@ Stub — plans not yet created. Run `/gsd-plan-phase 2`.
 - Requirements: REQ-leaderboard, REQ-snapshots
 - Authoritative plan-doc section: `docs/superpowers/plans/2026-06-11-area4-gamification-plan.md` — Phase 2 (Tasks 2.1 leaderboard screen with ClubCards/breakdowns/callouts, 2.2 snapshot system + movement)
 - Design authority: `docs/superpowers/specs/2026-06-11-area4-gamification-design.md` (A4 ClubCard/ScoreBreakdown/CalloutChip, A5 screen 1, B2 snapshots, B5)
+
+## Discussion outcome (2026-06-11)
+Context resolved from LOCKED docs + phase design. Inputs:
+- docs/superpowers/specs/2026-06-11-area4-gamification-design.md (LOCKED)
+- docs/superpowers/specs/02-leaderboard-phase-design.md (ClubCard anatomy, movement display, snapshot flow, saveSnapshot/areaTotals helpers)
+- Plan-doc Phase 2 (Tasks 2.1-2.2)
+Phase 1 delivered: index.html with CORE/UI regions, window.A4, leaderboard placeholder list, tests.html (32 green).
