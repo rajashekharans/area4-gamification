@@ -92,10 +92,6 @@ main#screen {
   font-size: var(--font-size-xl);
   font-weight: 700;
 }
-.screen-note {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
 .tab-bar {
   position: fixed;
   bottom: 0;
@@ -609,6 +605,67 @@ main#screen {
   /* B5 touch-target minimum from spacing tokens */
   min-height: calc(var(--space-6) + var(--space-3));
   padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+/* Settings — SettingsList groups */
+.settings-caption {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.settings-subcaption {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+.club-config-row { margin-bottom: var(--space-4); }
+.club-config-row:last-child { margin-bottom: 0; }
+.club-name-input {
+  display: block;
+  width: 100%;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  /* B5 touch-target minimum */
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+}
+/* Hint chip (mover-chip anatomy): Prospect Phoenix missing club number */
+.hint-chip {
+  display: inline-block;
+  background: var(--color-yellow);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  padding: var(--space-1) var(--space-2);
+}
+.settings-select {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  /* B5 touch-target minimum */
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: var(--space-2);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+/* Danger zone: .btn-accent-outline anatomy with error tokens */
+.btn-error-outline {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  background: var(--color-surface);
+  color: var(--color-error);
+  border: var(--border-thin) solid var(--color-error);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
 }
 </style>
@@ -1132,6 +1189,54 @@ function extractMinutes(text) {
   return out;
 }
 
+// ---- Phase 4: backup-import validation (pure, DOM-free — design B4) ----
+// Schema gate for the Settings JSON import. Checks in contract order:
+// plain object, version === 1, config.clubs (array, length >= 1, string
+// id + name on every entry), weights (plain object, all finite numbers),
+// snapshots (array when present). Every failed check appends a
+// human-readable error; never throws on any input (threat T-04-01).
+function validateImport(obj) {
+  if (!isPlainObject(obj)) {
+    return { ok: false, errors: ["Not a JSON object — expected an exported backup file."] };
+  }
+  var errors = [];
+
+  if (obj.version !== 1) {
+    errors.push("Unsupported backup version: expected 1, got " + JSON.stringify(obj.version) + ".");
+  }
+
+  var clubs = isPlainObject(obj.config) ? obj.config.clubs : undefined;
+  if (!Array.isArray(clubs) || clubs.length < 1) {
+    errors.push("config.clubs must be a list with at least one club.");
+  } else if (!clubs.every(function (c) {
+    return isPlainObject(c) && typeof c.id === "string" && typeof c.name === "string";
+  })) {
+    errors.push("Every club entry needs a text id and name.");
+  }
+
+  if (!isPlainObject(obj.weights)) {
+    errors.push("weights must be an object of scoring values.");
+  } else if (!Object.keys(obj.weights).every(function (k) {
+    return typeof obj.weights[k] === "number" && isFinite(obj.weights[k]);
+  })) {
+    errors.push("Every weight value must be a number.");
+  }
+
+  if (obj.snapshots !== undefined && !Array.isArray(obj.snapshots)) {
+    errors.push("snapshots must be a list when present.");
+  }
+
+  if (errors.length) return { ok: false, errors: errors };
+  return {
+    ok: true,
+    summary: {
+      clubCount: clubs.length,
+      snapshotCount: Array.isArray(obj.snapshots) ? obj.snapshots.length : 0,
+      lastTmiSync: obj.lastTmiSync === undefined ? null : obj.lastTmiSync
+    }
+  };
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
@@ -1143,7 +1248,8 @@ window.A4 = {
   parseCsv: parseCsv,
   mapTmiCsv: mapTmiCsv,
   applyTmiUpdates: applyTmiUpdates,
-  extractMinutes: extractMinutes
+  extractMinutes: extractMinutes,
+  validateImport: validateImport
 };
 
 // === UI ===
@@ -1202,11 +1308,6 @@ window.A4.update = update;
 
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function screenStub(title, note) {
-  return '<h2 class="screen-title">' + esc(title) + '</h2>' +
-         '<p class="screen-note">' + esc(note) + '</p>';
 }
 
 // UI-local accordion state (NOT persisted) so full re-renders keep the open card.
@@ -1968,8 +2069,262 @@ function renderTrends(main, state) {
   });
 }
 
+// ---- Settings screen (Phase 4) ----
+
+// The 21 weight keys with the workbook's exact row labels, grouped per the
+// phase design (single source of truth — mirrors design-spec B2 formulas).
+var WEIGHT_GROUPS = [
+  ["DCP", [
+    ["dcpGoal", "Per DCP goal met"],
+    ["distD", "Distinguished (D)"],
+    ["distS", "Select Distinguished (S)"],
+    ["distP", "President's Distinguished (P)"]
+  ]],
+  ["Membership", [
+    ["memberGrowth", "Per net member gained/lost"],
+    ["memberBonus20", "Bonus at 20+ members"]
+  ]],
+  ["Admin & Deadlines", [
+    ["duesOnTime", "Dues on time (per round)"],
+    ["officerList", "Officer list on time"],
+    ["cotRound", "Per COT round completed"]
+  ]],
+  ["Awards", [
+    ["d90Award", "Per D90 award (Smedley / Talk Up / Beat the Clock)"],
+    ["tripleCrown", "Per Triple Crown"],
+    ["contestArea", "Per Area contest win"],
+    ["contestDivision", "Per Division contest win"],
+    ["contestDistrict", "Per District contest win"]
+  ]],
+  ["Club Health", [
+    ["attendance75", "Attendance 75%+"],
+    ["attendance50", "Attendance 50–74%"],
+    ["perGuest", "Per guest"],
+    ["guestCap", "Guest points cap"],
+    ["perConversion", "Per guest who joined"],
+    ["perMeeting", "Per meeting held"],
+    ["meetingCap", "Meeting points cap"]
+  ]]
+];
+
+var PROGRAM_YEARS = ["2025-2026", "2026-2027", "2027-2028"];
+
+// Shared full-state replacement: swaps every top-level key on the EXISTING
+// state object (closures keep pointing at it) through one update() call.
+function replaceState(nextState) {
+  update(function (s) {
+    Object.keys(s).forEach(function (k) { delete s[k]; });
+    Object.keys(nextState).forEach(function (k) { s[k] = nextState[k]; });
+  });
+}
+
+function handleImportFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onerror = function () {
+    showToast("Could not read that file. Try choosing it again.", "error");
+  };
+  reader.onload = function () {
+    var imported;
+    try {
+      imported = JSON.parse(String(reader.result));
+    } catch (e) {
+      // Parse failure: explicit error, state untouched (design Error handling).
+      showToast("That file is not valid JSON — export a fresh backup and retry.", "error");
+      return;
+    }
+    var check = validateImport(imported);
+    if (!check.ok) {
+      // showToast renders via textContent, so error strings stay inert text.
+      showToast("Import rejected: " + check.errors.join(" "), "error");
+      return;
+    }
+    var sum = check.summary;
+    openSheet({
+      title: "Import backup?",
+      bodyHtml:
+        '<p class="sheet-label">Replaces everything currently in the app.</p>' +
+        '<div class="sheet-row"><span>Clubs</span>' +
+          '<span class="row-total">' + sum.clubCount + '</span></div>' +
+        '<div class="sheet-row"><span>Snapshots</span>' +
+          '<span class="row-total">' + sum.snapshotCount + '</span></div>' +
+        '<div class="sheet-row"><span>Last TMI sync</span>' +
+          '<span class="row-total">' + esc(sum.lastTmiSync === null ? "never" : sum.lastTmiSync) + '</span></div>',
+      confirmLabel: "Import",
+      onConfirm: function () {
+        // loadState path: missing slices fall back to defaults, unknown keys preserved.
+        replaceState(deepMerge(structuredClone(DEFAULT_STATE), imported));
+        showToast("Backup imported — " + sum.clubCount + " clubs, " +
+          sum.snapshotCount + " snapshot" + (sum.snapshotCount === 1 ? "" : "s"));
+      }
+    });
+  };
+  reader.readAsText(file);
+}
+
 function renderSettings(main, state) {
-  main.innerHTML = screenStub("Settings", "Weights and club config arrive in Phase 4.");
+  // Group 1 — Scoring weights (5 workbook sub-groups, 21 rows).
+  var weightsHtml = WEIGHT_GROUPS.map(function (group) {
+    return '<h4 class="settings-subcaption">' + esc(group[0]) + '</h4>' +
+      group[1].map(function (row) {
+        return formRow(row[1],
+          '<input class="num-input" inputmode="numeric" data-weight="' + esc(row[0]) +
+            '" value="' + state.weights[row[0]] + '" aria-label="' + esc(row[1]) + '">');
+      }).join("");
+  }).join("");
+
+  // Group 2 — Clubs (name + number; Prospect Phoenix hint chip while null).
+  var clubsHtml = state.config.clubs.map(function (club) {
+    var hint = club.id === "prospect-phoenix" && club.clubNumber === null
+      ? ' <span class="hint-chip">Club number TBC — add it here</span>'
+      : "";
+    return '<div class="club-config-row">' +
+      '<input class="club-name-input" data-club-name="' + esc(club.id) +
+        '" value="' + esc(club.name) + '" aria-label="Club name">' +
+      '<div class="form-row"><span class="form-label">Club number' + hint + '</span>' +
+        '<input class="num-input" inputmode="numeric" data-club-num="' + esc(club.id) +
+          '" value="' + (club.clubNumber === null ? "" : club.clubNumber) +
+          '" aria-label="Club number for ' + esc(club.name) + '">' +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  // Group 3 — Program year (drives the TMI fetch URL).
+  var yearOptions = PROGRAM_YEARS.map(function (py) {
+    return '<option value="' + py + '"' +
+      (py === state.config.programYear ? " selected" : "") + '>' + py + '</option>';
+  }).join("");
+
+  main.innerHTML =
+    '<h2 class="screen-title">Settings</h2>' +
+    '<section class="form-card">' +
+      '<h3 class="settings-caption">Scoring weights</h3>' + weightsHtml +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="settings-caption">Clubs</h3>' + clubsHtml +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="settings-caption">Program year</h3>' +
+      formRow("Toastmasters year",
+        '<select class="settings-select" data-program-year aria-label="Program year">' +
+          yearOptions + '</select>') +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="settings-caption">Backup</h3>' +
+      '<button type="button" class="btn-primary btn-block" data-export>Export JSON</button>' +
+      '<div class="file-drop open">' +
+        '<ol class="file-drop-steps">' +
+          '<li>Importing replaces everything — a preview asks first</li>' +
+        '</ol>' +
+        '<label class="file-drop-zone" data-import-zone>' +
+          '<span>Drop a backup JSON here, or tap to choose a file</span>' +
+          '<input type="file" accept=".json" data-import-input>' +
+        '</label>' +
+      '</div>' +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="settings-caption">Danger zone</h3>' +
+      '<button type="button" class="btn-error-outline btn-block" data-reset>Reset to seed data</button>' +
+    '</section>';
+
+  // Weights: parse int, clamp 0-100, revert unparseable input — commit on
+  // change (not input) so re-renders never fight the phone keyboard.
+  main.querySelectorAll("[data-weight]").forEach(function (input) {
+    input.addEventListener("change", function () {
+      var key = input.dataset.weight;
+      var n = parseInt(input.value, 10);
+      if (isNaN(n)) {
+        input.value = state.weights[key]; // revert, no state write
+        return;
+      }
+      var v = Math.min(100, Math.max(0, n));
+      update(function (s) { s.weights[key] = v; });
+    });
+  });
+
+  // Club names: trimmed; emptied field reverts to the current name (no write).
+  main.querySelectorAll("[data-club-name]").forEach(function (input) {
+    input.addEventListener("change", function () {
+      var id = input.dataset.clubName;
+      var club = state.config.clubs.filter(function (c) { return c.id === id; })[0];
+      var name = input.value.trim();
+      if (name === "") {
+        input.value = club.name; // revert, no state write
+        return;
+      }
+      update(function (s) {
+        s.config.clubs.filter(function (c) { return c.id === id; })[0].name = name;
+      });
+    });
+  });
+
+  // Club numbers: non-digits stripped; empty commits null (Prospect Phoenix
+  // decision in the design spec).
+  main.querySelectorAll("[data-club-num]").forEach(function (input) {
+    input.addEventListener("change", function () {
+      var id = input.dataset.clubNum;
+      var digits = input.value.replace(/\D/g, "");
+      var num = digits === "" ? null : parseInt(digits, 10);
+      update(function (s) {
+        s.config.clubs.filter(function (c) { return c.id === id; })[0].clubNumber = num;
+      });
+    });
+  });
+
+  main.querySelector("[data-program-year]").addEventListener("change", function (e) {
+    var py = e.target.value;
+    if (PROGRAM_YEARS.indexOf(py) === -1) return;
+    update(function (s) { s.config.programYear = py; });
+  });
+
+  // Export: full live state as a dated Blob download (B4 boundary).
+  main.querySelector("[data-export]").addEventListener("click", function () {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "idiff-area4-backup-" + localToday() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Backup exported");
+  });
+
+  // Import FileDrop (Phase 3 wiring pattern: input + dragover/drop).
+  var zone = main.querySelector("[data-import-zone]");
+  var importInput = zone.querySelector("[data-import-input]");
+  importInput.addEventListener("change", function () {
+    handleImportFile(importInput.files && importInput.files[0]);
+  });
+  zone.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    zone.classList.add("drag");
+  });
+  zone.addEventListener("dragleave", function () {
+    zone.classList.remove("drag");
+  });
+  zone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    zone.classList.remove("drag");
+    handleImportFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+
+  // Danger zone: Sheet-gated reset to a DEFAULT_STATE deep copy (B5 data safety).
+  main.querySelector("[data-reset]").addEventListener("click", function () {
+    openSheet({
+      title: "Reset to seed data?",
+      bodyHtml:
+        '<p class="sheet-label">All scores, snapshots, weights and club changes ' +
+          'will be replaced with the original seed data. Export a backup first ' +
+          'if you might want this data back.</p>',
+      confirmLabel: "Reset",
+      onConfirm: function () {
+        replaceState(structuredClone(DEFAULT_STATE));
+        showToast("Reset to seed data");
+      }
+    });
+  });
 }
 
 var SCREENS = {

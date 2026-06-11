@@ -300,6 +300,30 @@ function runCases(A4, assertEq) {
     { attendancePct: 90, conversions: 1 });
   assertEq("extractMinutes: nothing found -> empty object",
     A4.extractMinutes("The committee discussed the agenda at length."), {});
+
+  // --- Phase 4: validateImport (backup-import schema gate) ---
+  // Export writes the full AppState, so the default state is its exact shape.
+  assertEq("validateImport: accepts exported state shape",
+    A4.validateImport(clone()),
+    { ok: true, summary: { clubCount: 6, snapshotCount: 0, lastTmiSync: null } });
+
+  var viEmpty = A4.validateImport({});
+  assertEq("validateImport: rejects empty object with explicit errors",
+    [viEmpty.ok, viEmpty.errors.length > 0], [false, true]);
+
+  var viV99 = clone();
+  viV99.version = 99;
+  assertEq("validateImport: rejects version 99", A4.validateImport(viV99).ok, false);
+
+  var viWeight = clone();
+  viWeight.weights.dcpGoal = "5"; // string form of a number is still rejected
+  assertEq("validateImport: rejects non-numeric weight value",
+    A4.validateImport(viWeight).ok, false);
+
+  var viSnaps = clone();
+  viSnaps.snapshots = "not-a-list";
+  assertEq("validateImport: rejects non-array snapshots",
+    A4.validateImport(viSnaps).ok, false);
 }
 // === END CASES ===
 
