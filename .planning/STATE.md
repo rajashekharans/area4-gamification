@@ -111,3 +111,6 @@ None yet.
 Last session: 2026-06-11
 Stopped at: Completed 04-01-PLAN.md (Phase 4 — final — executed; orchestrator verification + roadmap check-off pending; project feature-complete)
 Resume file: None
+
+## Orchestrator verification (2026-06-11)
+Browser-verified at 375px: 75/75 tests green over http; leaderboard seed parity + medals; breakdown accordion; snapshot Sheet -> movement (+31, rank +2 chip) and Biggest Mover; trends chart (brand palette, 2 snapshots) + history delete; TMI screen (refresh/upload/17 toggles); manual entry (10 steppers) + minutes extractor (12-of-18 -> 67%); settings (27 numeric inputs, export/import validation, reset); sample CSV maps 6/6 clubs, 2 decoys rejected; zero console errors; no horizontal scroll on any screen. Project COMPLETE.
