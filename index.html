@@ -44,6 +44,10 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+
+  /* Structural helper tokens (raw values live only in :root) */
+  --border-thin: 1px;
+  --duration-fast: 200ms; /* phase design: breakdown transition cap <= 200ms */
 }
 
 /* Base / reset */
@@ -115,25 +119,114 @@ main#screen {
   font-weight: 700;
 }
 
-/* ClubCard (minimal Phase 1 form — medals/breakdowns arrive in Phase 2) */
-.club-card {
+/* CalloutChip — Leading Club / Biggest Mover / Area Total */
+.chips {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+}
+.chip .chip-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+}
+.chip .chip-value {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.chip-lead { background: var(--color-primary); color: var(--color-surface); }
+.chip-mover { background: var(--color-yellow); color: var(--color-text); }
+.chip-total {
+  background: var(--color-surface);
+  border: var(--border-thin) solid var(--color-gray);
+}
+
+/* ClubCard — whole card is the tap target toggling the breakdown */
+.club-card {
   background: var(--color-surface);
   padding: var(--space-3);
   border-radius: var(--radius-sm);
   margin-bottom: var(--space-3);
+  cursor: pointer;
 }
+.club-card.rank-1 { border-left: var(--space-1) solid var(--color-gold); }
+.club-card.rank-2 { border-left: var(--space-1) solid var(--color-silver); }
+.club-card.rank-3 { border-left: var(--space-1) solid var(--color-bronze); }
+.club-card .card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* B5 touch-target minimum met from spacing tokens (space-6 + space-3) */
+  min-height: calc(var(--space-6) + var(--space-3));
+}
+.rank-badge {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--space-6) + var(--space-3));
+  height: calc(var(--space-6) + var(--space-3));
+  border-radius: 50%;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+.club-card.rank-1 .rank-badge { background: var(--color-gold); color: var(--color-surface); }
+.club-card.rank-2 .rank-badge { background: var(--color-silver); color: var(--color-surface); }
+.club-card.rank-3 .rank-badge { background: var(--color-bronze); color: var(--color-surface); }
+.rank-chip {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  right: calc(-1 * var(--space-2));
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-yellow);
+  border-radius: var(--radius-lg);
+  padding: 0 var(--space-1);
+}
+.rank-chip.down { background: var(--color-gray); }
+.club-card .name-block { flex: 1; min-width: 0; }
 .club-card .club-name {
   font-size: var(--font-size-lg);
   font-weight: 600;
 }
+.club-card .movement { font-size: var(--font-size-xs); }
+.club-card .movement.up { color: var(--color-success); }
+.club-card .movement.down { color: var(--color-error); }
+.club-card .movement.flat { color: var(--color-text-muted); }
 .club-card .club-total {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-2xl);
   font-weight: 700;
   color: var(--color-primary);
 }
+
+/* ScoreBreakdown — accordion inside the ClubCard */
+.club-card .breakdown {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--duration-fast) ease;
+}
+.club-card.expanded .breakdown {
+  max-height: calc(var(--space-6) * 12);
+}
+.bd-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  border-top: var(--border-thin) solid color-mix(in srgb, var(--color-gray) 30%, transparent);
+}
+.bd-row.zero { color: var(--color-text-muted); }
+.bd-row.bd-total { font-weight: 700; }
 
 /* Toast */
 .toast {
@@ -347,12 +440,20 @@ function movementVs(snapshot, scores) {
   return out;
 }
 
+// Sum of club totals across the area (CalloutChip "Area Total").
+function areaTotals(scores) {
+  return Object.keys(scores).reduce(function (sum, id) {
+    return sum + scores[id].total;
+  }, 0);
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
   saveState: saveState,
   computeScores: computeScores,
-  movementVs: movementVs
+  movementVs: movementVs,
+  areaTotals: areaTotals
 };
 
 // === UI ===
@@ -385,18 +486,137 @@ function screenStub(title, note) {
          '<p class="screen-note">' + esc(note) + '</p>';
 }
 
+// UI-local accordion state (NOT persisted) so full re-renders keep the open card.
+var expandedClubId = null;
+
+var CATEGORY_LABELS = [
+  ["dcp", "DCP"],
+  ["dist", "Distinguished"],
+  ["membership", "Membership"],
+  ["admin", "Admin"],
+  ["awards", "Awards"],
+  ["health", "Club Health"]
+];
+
+function signed(n) {
+  return n > 0 ? "+" + n : n < 0 ? "−" + Math.abs(n) : "0";
+}
+
+// Movement line variants — arrows ALWAYS paired with signed text (B5: never color-only).
+function movementLine(mv) {
+  if (mv.rankDelta === null) {
+    return '<div class="movement flat">— no snapshot yet</div>';
+  }
+  if (mv.scoreDelta > 0) {
+    return '<div class="movement up">▲ ' + signed(mv.scoreDelta) + ' since last snapshot</div>';
+  }
+  if (mv.scoreDelta < 0) {
+    return '<div class="movement down">▼ ' + signed(mv.scoreDelta) + '</div>';
+  }
+  return '<div class="movement flat">— no change</div>';
+}
+
+// Medal styling for the "top-3 cards": a (possibly tied) rank group is medalled
+// only when the whole group fits inside the top three positions — so a four-way
+// tie at rank 3 renders neutral badges (verification: seed state).
+function medalClass(rank, scores) {
+  if (rank > 3) return "";
+  var inOrAbove = Object.keys(scores).filter(function (id) {
+    return scores[id].rank <= rank;
+  }).length;
+  if (inOrAbove > 3) return "";
+  return rank === 1 ? "rank-1" : rank === 2 ? "rank-2" : "rank-3";
+}
+
 function renderLeaderboard(main, state) {
   var scores = computeScores(state);
+  var lastSnapshot = state.snapshots[state.snapshots.length - 1] || null;
+  var movement = movementVs(lastSnapshot, scores);
   var clubs = state.config.clubs.slice().sort(function (a, b) {
     return scores[a.id].rank - scores[b.id].rank;
   });
-  main.innerHTML = '<h2 class="screen-title">Leaderboard</h2>' +
-    clubs.map(function (club) {
-      return '<div class="club-card">' +
-        '<span class="club-name">' + esc(club.name) + '</span>' +
-        '<span class="club-total">' + scores[club.id].total + '</span>' +
-        '</div>';
-    }).join("");
+
+  // Leading Club: rank 1; on ties the first by club order.
+  var leader = state.config.clubs.filter(function (c) {
+    return scores[c.id].rank === 1;
+  })[0];
+
+  // Biggest Mover: largest strictly positive scoreDelta (first by club order on ties).
+  var mover = null;
+  state.config.clubs.forEach(function (club) {
+    var d = movement[club.id].scoreDelta;
+    if (d > 0 && (!mover || d > mover.delta)) mover = { name: club.name, delta: d };
+  });
+  var moverText = mover ? mover.name + " " + signed(mover.delta) : "—";
+
+  var chipsHtml =
+    '<div class="chips">' +
+      '<div class="chip chip-lead"><span class="chip-label">Leading Club</span>' +
+        '<span class="chip-value">' + esc(leader.name) + '</span></div>' +
+      '<div class="chip chip-mover"><span class="chip-label">Biggest Mover</span>' +
+        '<span class="chip-value">' + esc(moverText) + '</span></div>' +
+      '<div class="chip chip-total"><span class="chip-label">Area Total</span>' +
+        '<span class="chip-value">' + areaTotals(scores) + '</span></div>' +
+    '</div>';
+
+  var cardsHtml = clubs.map(function (club) {
+    var score = scores[club.id];
+    var mv = movement[club.id];
+    var medal = medalClass(score.rank, scores);
+    var expanded = expandedClubId === club.id;
+
+    var rankChip = (mv.rankDelta !== null && mv.rankDelta !== 0)
+      ? '<span class="rank-chip ' + (mv.rankDelta > 0 ? "up" : "down") + '">' +
+          signed(mv.rankDelta) + '</span>'
+      : "";
+
+    var breakdownRows = CATEGORY_LABELS.map(function (cat) {
+      var pts = score.breakdown[cat[0]];
+      return '<div class="bd-row' + (pts === 0 ? " zero" : "") + '">' +
+        '<span>' + cat[1] + '</span><span>' + pts + '</span></div>';
+    }).join("") +
+      '<div class="bd-row bd-total"><span>Total</span><span>' + score.total + '</span></div>';
+
+    return '<article class="club-card' + (medal ? " " + medal : "") +
+        (expanded ? " expanded" : "") + '" role="button" tabindex="0"' +
+        ' aria-expanded="' + expanded + '" data-club="' + esc(club.id) + '">' +
+      '<div class="card-row">' +
+        '<div class="rank-badge">' + score.rank + rankChip + '</div>' +
+        '<div class="name-block">' +
+          '<div class="club-name">' + esc(club.name) + '</div>' +
+          movementLine(mv) +
+        '</div>' +
+        '<div class="club-total">' + score.total + '</div>' +
+      '</div>' +
+      '<div class="breakdown">' + breakdownRows + '</div>' +
+    '</article>';
+  }).join("");
+
+  main.innerHTML = '<h2 class="screen-title">Leaderboard</h2>' + chipsHtml + cardsHtml;
+
+  // Toggle classes directly (not via re-render) so the max-height transition animates.
+  main.querySelectorAll(".club-card").forEach(function (card) {
+    function toggle() {
+      var id = card.dataset.club;
+      if (expandedClubId && expandedClubId !== id) {
+        var open = main.querySelector('.club-card[data-club="' + expandedClubId + '"]');
+        if (open) {
+          open.classList.remove("expanded");
+          open.setAttribute("aria-expanded", "false");
+        }
+      }
+      var nowExpanded = card.classList.toggle("expanded");
+      card.setAttribute("aria-expanded", String(nowExpanded));
+      expandedClubId = nowExpanded ? id : null;
+    }
+    card.addEventListener("click", toggle);
+    card.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  });
 }
 
 function renderTmi(main, state) {

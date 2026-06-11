@@ -142,6 +142,13 @@ function runCases(A4, assertEq) {
   assertEq("movementVs: marsden-park rankDelta +2 (rank 3 -> 1)", mv["marsden-park"].rankDelta, 2);
   assertEq("movementVs: quakers-hill scoreDelta 0", mv["quakers-hill"].scoreDelta, 0);
   assertEq("movementVs: quakers-hill rankDelta -1 (rank 1 -> 2)", mv["quakers-hill"].rankDelta, -1);
+
+  // --- Phase 2: areaTotals ---
+  assertEq("areaTotals: seed scores sum to 10", A4.areaTotals(seedScores), 10);
+  // Full-house fixture `s`: blacktown 176 + quakers-hill seed bonus 5
+  // (blacktown's own seed 5 is replaced by the fixture, others 0).
+  assertEq("areaTotals: full-house blacktown state sums to 181",
+    A4.areaTotals(A4.computeScores(s)), 181);
 }
 // === END CASES ===
 
