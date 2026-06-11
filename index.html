@@ -49,12 +49,21 @@
   --border-thin: 1px;
   --duration-fast: 200ms; /* phase design: breakdown transition cap <= 200ms */
   --duration-flash: 1500ms; /* extract-prefill yellow fade (Phase 3) */
+
+  /* Shell min-height: full-viewport fallback first (WhatsApp in-app browser
+     lacking dynamic units), re-declared to the dynamic unit below. */
+  --shell-min-height: 100vh;
+}
+@supports (min-height: 100dvh) {
+  :root { --shell-min-height: 100dvh; }
 }
 
 /* Base / reset */
 * { box-sizing: border-box; }
 body {
   margin: 0;
+  /* dvh-based shell (vh fallback) — no fixed viewport-height traps. */
+  min-height: var(--shell-min-height);
   font-family: var(--font-family);
   font-size: var(--font-size-base);
   background: var(--color-bg);
@@ -126,6 +135,7 @@ main#screen {
 .chip {
   display: flex;
   flex-direction: column;
+  max-width: 100%;
   border-radius: var(--radius-lg);
   padding: var(--space-2) var(--space-3);
 }
@@ -136,6 +146,7 @@ main#screen {
 .chip .chip-value {
   font-size: var(--font-size-sm);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .chip-lead { background: var(--color-primary); color: var(--color-surface); }
 .chip-mover { background: var(--color-yellow); color: var(--color-text); }
@@ -195,6 +206,8 @@ main#screen {
 .club-card .club-name {
   font-size: var(--font-size-lg);
   font-weight: 600;
+  /* Club names are user-editable: unbroken strings wrap, never overflow. */
+  overflow-wrap: anywhere;
 }
 .club-card .movement { font-size: var(--font-size-xs); }
 .club-card .movement.up { color: var(--color-success); }
@@ -313,6 +326,9 @@ main#screen {
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   z-index: 20;
+  /* Long messages (e.g. import error lists) wrap instead of widening the page. */
+  max-width: calc(100% - var(--space-6));
+  overflow-wrap: anywhere;
 }
 .toast.toast-error {
   border-left: var(--space-1) solid var(--color-error);
