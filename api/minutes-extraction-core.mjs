@@ -55,6 +55,19 @@ export function validateRequestParts(parts) {
   return { ok: true };
 }
 
+export function mergeRequestFallbacks(parts, headers = {}) {
+  const readHeader = (name) => {
+    if (typeof headers.get === "function") return headers.get(name) || "";
+    return headers[name] || headers[name.toLowerCase()] || "";
+  };
+  return {
+    ...parts,
+    clubId: cleanText(parts?.clubId) || cleanText(readHeader("x-area4-club-id")),
+    clubName: cleanText(parts?.clubName) || cleanText(readHeader("x-area4-club-name")),
+    meetingDate: cleanText(parts?.meetingDate) || cleanText(readHeader("x-area4-meeting-date"))
+  };
+}
+
 function decodeXmlEntities(value) {
   return String(value)
     .replace(/&lt;/g, "<")

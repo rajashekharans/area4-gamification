@@ -2390,7 +2390,15 @@ async function requestMinutesExtraction(main, button) {
   button.disabled = true;
   button.textContent = "Extracting...";
   try {
-    var res = await fetch("/api/extract-minutes", { method: "POST", body: form });
+    var res = await fetch("/api/extract-minutes", {
+      method: "POST",
+      headers: {
+        "x-area4-club-id": club.id,
+        "x-area4-club-name": club.name,
+        "x-area4-meeting-date": dateEl && dateEl.value ? dateEl.value : localToday()
+      },
+      body: form
+    });
     var data = await res.json().catch(function () {
       return { ok: false, error: "Minutes extraction did not return JSON." };
     });

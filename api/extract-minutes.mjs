@@ -1,6 +1,7 @@
 import {
   extractMinutesWithAI,
   extractTextFromFile,
+  mergeRequestFallbacks,
   validateRequestParts
 } from "./minutes-extraction-core.mjs";
 
@@ -93,12 +94,14 @@ export default async function handler(req, res) {
   try {
     const body = await readBody(req);
     const { fields, file } = parseMultipart(body, req.headers["content-type"]);
-    const validation = validateRequestParts({
+    const requestParts = mergeRequestFallbacks({
       clubId: fields.clubId,
       clubName: fields.clubName,
       text: fields.text,
+      meetingDate: fields.meetingDate,
       file
-    });
+    }, req.headers);
+    const validation = validateRequestParts(requestParts);
     if (!validation.ok) {
       sendJson(res, validation.status, { ok: false, error: validation.error });
       return;
@@ -116,9 +119,9 @@ export default async function handler(req, res) {
 
     const text = [fields.text, fileText].map((v) => String(v || "").trim()).filter(Boolean).join("\n\n");
     const result = await extractMinutesWithAI({
-      clubId: fields.clubId,
-      clubName: fields.clubName,
-      meetingDate: fields.meetingDate,
+      clubId: requestParts.clubId,
+      clubName: requestParts.clubName,
+      meetingDate: requestParts.meetingDate,
       inputType: inputTypeFor(file, fields.text),
       text
     });

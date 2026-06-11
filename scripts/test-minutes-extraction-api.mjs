@@ -3,6 +3,7 @@ import { deflateRawSync } from "node:zlib";
 import {
   extractMinutesWithAI,
   extractTextFromFile,
+  mergeRequestFallbacks,
   validateRequestParts
 } from "../api/minutes-extraction-core.mjs";
 
@@ -101,6 +102,23 @@ assert.deepEqual(validateRequestParts({ clubId: "", clubName: "Marsden", text: "
 assert.deepEqual(
   validateRequestParts({ clubId: "marsden-park", clubName: "Marsden Park Toastmasters", text: "" }),
   { ok: false, status: 400, error: "Paste minutes text or upload a minutes file." }
+);
+
+assert.deepEqual(
+  mergeRequestFallbacks(
+    { clubId: "", clubName: "", meetingDate: "", text: "Guests attended" },
+    {
+      "x-area4-club-id": "quakers-hill",
+      "x-area4-club-name": "Quakers Hill Toastmasters",
+      "x-area4-meeting-date": "2026-06-11"
+    }
+  ),
+  {
+    clubId: "quakers-hill",
+    clubName: "Quakers Hill Toastmasters",
+    meetingDate: "2026-06-11",
+    text: "Guests attended"
+  }
 );
 
 assert.equal(
