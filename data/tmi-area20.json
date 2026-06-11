@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "district": "90",
+    "sourceArea": "20",
+    "futureArea": "4",
+    "url": "https://dashboards.toastmasters.org/Club.aspx?id=90",
+    "fetchedAt": "2026-06-11T03:53:51.907Z",
+    "asOf": "As of 9-Jun-2026"
+  },
+  "clubs": [
+    {
+      "clubNumber": "3378",
+      "clubName": "Blacktown City",
+      "tmi": {
+        "base": 20,
+        "current": 21,
+        "goals": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          1
+        ],
+        "distinguished": "P",
+        "duesOct": 1,
+        "duesApr": 1,
+        "officerList": 1,
+        "cotRounds": 2
+      }
+    },
+    {
+      "clubNumber": "4875",
+      "clubName": "Prospect Phoenix Toastmasters Club",
+      "tmi": {
+        "base": 6,
+        "current": 8,
+        "goals": [
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1
+        ],
+        "distinguished": "",
+        "duesOct": 1,
+        "duesApr": 0,
+        "officerList": 1,
+        "cotRounds": 2
+      }
+    },
+    {
+      "clubNumber": "9448",
+      "clubName": "Quakers Hill Club",
+      "tmi": {
+        "base": 25,
+        "current": 30,
+        "goals": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "distinguished": "S",
+        "duesOct": 1,
+        "duesApr": 1,
+        "officerList": 1,
+        "cotRounds": 2
+      }
+    },
+    {
+      "clubNumber": "9627",
+      "clubName": "Rooty Hill Toastmasters Club",
+      "tmi": {
+        "base": 11,
+        "current": 9,
+        "goals": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          1,
+          1
+        ],
+        "distinguished": "",
+        "duesOct": 1,
+        "duesApr": 1,
+        "officerList": 1,
+        "cotRounds": 2
+      }
+    },
+    {
+      "clubNumber": "28679342",
+      "clubName": "Marsden Park Toastmasters Club",
+      "tmi": {
+        "base": 20,
+        "current": 12,
+        "goals": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0,
+          0,
+          1
+        ],
+        "distinguished": "",
+        "duesOct": 1,
+        "duesApr": 1,
+        "officerList": 1,
+        "cotRounds": 1
+      }
+    }
+  ],
+  "parseWarnings": []
+}
