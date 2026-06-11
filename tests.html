@@ -199,6 +199,92 @@ function runCases(A4, assertEq) {
     [mvSaved["marsden-park"].scoreDelta, mvSaved["marsden-park"].rankDelta,
      mvSaved["quakers-hill"].rankDelta],
     [50, 2, -1]);
+
+  // --- Phase 3: parseCsv (RFC-4180-ish) ---
+  assertEq("parseCsv: quoted field with embedded comma stays one cell",
+    A4.parseCsv('a,"b,c",d'), [["a", "b,c", "d"]]);
+  assertEq("parseCsv: escaped double quotes unescape",
+    A4.parseCsv('a,"he said ""hi""",c'), [["a", 'he said "hi"', "c"]]);
+  assertEq("parseCsv: CRLF endings and blank lines handled",
+    A4.parseCsv("a,b\r\n\r\nc,d\n"), [["a", "b"], ["c", "d"]]);
+
+  // --- Phase 3: mapTmiCsv fixture (kept in sync with
+  //     sample-data/tmi-club-performance-sample.csv) ---
+  var TMI_CSV = [
+    'District,Division,Area,Club Number,Club Name,Club Status,Mem. Base,Active Members,Goals Met,Level 1s,Level 2s,Add. Level 2s,Level 3s,"Level 4s, Level 5s, or DTM award","Add. Level 4s, Level 5s, or DTM award",New Members,Add. New Members,Off. Trained Round 1,Off. Trained Round 2,Mem. dues on time Oct,Mem. dues on time Apr,Off. List On Time,Club Distinguished Status',
+    "90,B,4,28679342,Marsden Park Toastmasters,Active,18,19,2,4,1,0,1,0,0,2,0,4,0,1,0,1,",
+    "90,B,4,00009448,Quakers Hill Toastmasters,Active,22,22,4,3,2,0,1,1,0,1,0,5,4,1,0,1,",
+    "90,B,4,0,Prospect Phoenix Toastmasters,Active,15,16,0,2,1,0,0,0,0,3,0,3,0,1,0,0,",
+    "90,B,4,00003378,Blacktown City Toastmasters,Active,20,24,10,5,2,2,2,1,1,5,4,5,4,1,1,1,President's Distinguished",
+    "90,B,4,00009627,Rooty Hill Toastmasters,Active,14,14,2,4,0,0,0,0,0,1,0,2,0,1,0,1,",
+    "90,B,4,00007851,Holroyd Toastmasters,Active,16,17,1,3,1,0,1,0,0,4,0,4,3,1,0,0,",
+    "90,B,1,00001234,Parramatta Toastmasters,Active,25,27,3,4,2,1,1,1,0,3,0,4,4,1,0,1,Distinguished",
+    '90,A,2,00005678,"Sydney CBD, Lunchtime Toastmasters",Active,30,33,5,6,3,2,2,1,1,5,2,5,5,1,1,1,Select Distinguished'
+  ].join("\n");
+
+  var tm = A4.mapTmiCsv(A4.parseCsv(TMI_CSV), DS);
+  assertEq("mapTmiCsv: all 6 Area 4 clubs mapped",
+    Object.keys(tm.updates).sort(),
+    ["blacktown-city", "holroyd", "marsden-park", "prospect-phoenix",
+     "quakers-hill", "rooty-hill"]);
+  assertEq("mapTmiCsv: both decoys unmatched, quoted-comma name intact",
+    tm.unmatchedClubs,
+    ["Parramatta Toastmasters", "Sydney CBD, Lunchtime Toastmasters"]);
+  assertEq("mapTmiCsv: unmapped headers reported (goals never read from Goals Met)",
+    tm.unmappedFields, ["District", "Division", "Area", "Club Status", "Goals Met"]);
+  assertEq("mapTmiCsv: no skipped rows in clean fixture", tm.skippedRows, []);
+
+  // Thresholds (workbook G1-G10 definitions)
+  assertEq("mapTmiCsv: Marsden Park Level 1s 4 -> G1 met",
+    tm.updates["marsden-park"].goals[0], 1);
+  assertEq("mapTmiCsv: Quakers Hill Level 1s 3 -> G1 not met",
+    tm.updates["quakers-hill"].goals[0], 0);
+  assertEq("mapTmiCsv: Quakers Hill both COT rounds >= 4 -> G9 met, cotRounds 2",
+    [tm.updates["quakers-hill"].goals[8], tm.updates["quakers-hill"].cotRounds], [1, 2]);
+  assertEq("mapTmiCsv: Marsden Park one COT round >= 4 -> G9 not met, cotRounds 1",
+    [tm.updates["marsden-park"].goals[8], tm.updates["marsden-park"].cotRounds], [0, 1]);
+  assertEq("mapTmiCsv: Blacktown City dues+list on time -> G10 met",
+    tm.updates["blacktown-city"].goals[9], 1);
+  assertEq("mapTmiCsv: Blacktown City President's Distinguished -> P",
+    tm.updates["blacktown-city"].distinguished, "P");
+  assertEq("mapTmiCsv: Blacktown City all 10 goals met",
+    tm.updates["blacktown-city"].goals, [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+
+  // Field mapping
+  assertEq("mapTmiCsv: Marsden Park Mem. Base 18 / Active Members 19",
+    [tm.updates["marsden-park"].base, tm.updates["marsden-park"].current], [18, 19]);
+
+  // Name fallback: Prospect Phoenix has club number 0 in the CSV and null in
+  // state — matched via normalized club name.
+  assertEq("mapTmiCsv: Prospect Phoenix matched by name fallback",
+    [tm.updates["prospect-phoenix"].base, tm.updates["prospect-phoenix"].current], [15, 16]);
+  assertEq("mapTmiCsv: matched list in row order",
+    tm.matched,
+    ["marsden-park", "quakers-hill", "prospect-phoenix", "blacktown-city",
+     "rooty-hill", "holroyd"]);
+
+  // Malformed-row tolerance: garbage data row is reported, never thrown,
+  // and the valid rows still map.
+  var tmBad = A4.mapTmiCsv(A4.parseCsv(TMI_CSV + "\ngarbage row with no commas"), DS);
+  assertEq("mapTmiCsv: malformed row reported in skippedRows",
+    tmBad.skippedRows.length, 1);
+  assertEq("mapTmiCsv: valid rows still map around the malformed one",
+    Object.keys(tmBad.updates).length, 6);
+
+  // --- Phase 3: applyTmiUpdates (pure) ---
+  var stApply = clone();
+  var applied = A4.applyTmiUpdates(stApply, { "marsden-park": { current: 19, distinguished: "D" } });
+  assertEq("applyTmiUpdates: patch merged over existing record",
+    [applied.tmi["marsden-park"].current, applied.tmi["marsden-park"].distinguished,
+     applied.tmi["marsden-park"].base], [19, "D", 18]);
+  assertEq("applyTmiUpdates: unpatched clubs carried over",
+    applied.tmi["holroyd"], stApply.tmi["holroyd"]);
+  assertEq("applyTmiUpdates: lastTmiSync is an ISO string",
+    typeof applied.lastTmiSync === "string" && applied.lastTmiSync.indexOf("T") > 0, true);
+  assertEq("applyTmiUpdates: input state not mutated",
+    [stApply.tmi["marsden-park"].current, stApply.tmi["marsden-park"].distinguished], [18, ""]);
+  assertEq("applyTmiUpdates: returns a NEW tmi slice",
+    applied.tmi !== stApply.tmi && applied.tmi["quakers-hill"] !== stApply.tmi["quakers-hill"], true);
 }
 // === END CASES ===
 

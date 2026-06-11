@@ -468,6 +468,43 @@ main#screen {
   color: var(--color-text-muted);
   margin-bottom: var(--space-3);
 }
+.sync-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.sync-actions button { flex: 1; }
+
+/* FileDrop — CSV picker + drag target, collapsed until needed */
+.file-drop {
+  display: none;
+  margin-top: var(--space-3);
+}
+.file-drop.open { display: block; }
+.file-drop-steps {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.file-drop-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: calc(var(--space-6) * 3);
+  padding: var(--space-4);
+  border: var(--border-thin) dashed var(--color-gray);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+.file-drop-zone.drag {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.file-drop-zone input { display: none; }
 </style>
 </head>
 <body>
@@ -691,6 +728,270 @@ function saveSnapshot(state, date) {
   return next;
 }
 
+// ---- Phase 3: TMI CSV ingestion (pure, DOM-free — design B4, LOCKED) ----
+
+// RFC-4180-ish CSV parser: quoted fields, embedded commas/newlines, escaped
+// double quotes (""), CRLF and LF line endings; blank lines skipped.
+// Returns an array of string arrays. Never throws on malformed input.
+function parseCsv(text) {
+  var s = String(text === null || text === undefined ? "" : text);
+  var rows = [];
+  var row = [];
+  var field = "";
+  var inQuotes = false;
+  var i = 0;
+
+  function endField() {
+    row.push(field);
+    field = "";
+  }
+  function endRow() {
+    endField();
+    // A row that is a single empty field is a blank line: skip it.
+    if (!(row.length === 1 && row[0] === "")) rows.push(row);
+    row = [];
+  }
+
+  while (i < s.length) {
+    var ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i += 2; continue; }
+        inQuotes = false;
+        i++;
+        continue;
+      }
+      field += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') { inQuotes = true; i++; continue; }
+    if (ch === ",") { endField(); i++; continue; }
+    if (ch === "\r") {
+      if (s[i + 1] === "\n") i++;
+      endRow();
+      i++;
+      continue;
+    }
+    if (ch === "\n") { endRow(); i++; continue; }
+    field += ch;
+    i++;
+  }
+  if (field !== "" || row.length > 0) endRow();
+  return rows;
+}
+
+// Header normalization for fuzzy column matching: lowercase, punctuation
+// collapsed to single spaces (TMI renames headers between program years).
+function normalizeHeader(h) {
+  return String(h === null || h === undefined ? "" : h)
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Club-name normalization for fallback matching: lowercase, trailing
+// "toastmasters"/"club" words stripped, then alphanumerics only.
+function normalizeClubName(name) {
+  var words = String(name === null || name === undefined ? "" : name)
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ");
+  while (words.length > 1 &&
+         (words[words.length - 1] === "toastmasters" || words[words.length - 1] === "club")) {
+    words.pop();
+  }
+  return words.join("");
+}
+
+// Club-number normalization: string compare after stripping leading zeros.
+// null/empty/all-zero numbers normalize to "" (number matching skipped).
+function normalizeClubNumber(v) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim().replace(/^0+/, "");
+}
+
+// Ordered field-pattern table (first match wins) over normalized headers.
+// More specific "Add." patterns precede their base patterns.
+var TMI_FIELD_PATTERNS = [
+  ["clubNumber", function (h) { return h.indexOf("club") >= 0 && h.indexOf("number") >= 0; }],
+  ["clubName", function (h) { return h.indexOf("club") >= 0 && h.indexOf("name") >= 0; }],
+  ["base", function (h) { return h.indexOf("mem") >= 0 && h.indexOf("base") >= 0; }],
+  ["current", function (h) { return h.indexOf("active") >= 0; }],
+  ["addL2", function (h) { return h.indexOf("add") >= 0 && h.indexOf("level 2") >= 0; }],
+  ["addL4", function (h) { return h.indexOf("add") >= 0 && (h.indexOf("level 4") >= 0 || h.indexOf("level 5") >= 0 || h.indexOf("dtm") >= 0); }],
+  ["addNew", function (h) { return h.indexOf("add") >= 0 && h.indexOf("new") >= 0; }],
+  ["l1", function (h) { return h.indexOf("level 1") >= 0; }],
+  ["l2", function (h) { return h.indexOf("level 2") >= 0; }],
+  ["l3", function (h) { return h.indexOf("level 3") >= 0; }],
+  ["l4", function (h) { return h.indexOf("level 4") >= 0 || h.indexOf("level 5") >= 0 || h.indexOf("dtm") >= 0; }],
+  ["newMembers", function (h) { return h.indexOf("new") >= 0 && h.indexOf("member") >= 0; }],
+  ["cot1", function (h) { return h.indexOf("trained") >= 0 && h.indexOf("1") >= 0; }],
+  ["cot2", function (h) { return h.indexOf("trained") >= 0 && h.indexOf("2") >= 0; }],
+  ["duesOct", function (h) { return h.indexOf("dues") >= 0 && h.indexOf("oct") >= 0; }],
+  ["duesApr", function (h) { return h.indexOf("dues") >= 0 && h.indexOf("apr") >= 0; }],
+  ["officerList", function (h) { return h.indexOf("list") >= 0; }],
+  ["distinguished", function (h) { return h.indexOf("distinguished") >= 0; }]
+];
+
+// Map TMI Club Performance CSV rows onto the Area 4 tmi slice. PURE, never
+// throws: malformed rows collect into skippedRows; non-Area-4 rows into
+// unmatchedClubs; headers no pattern consumes into unmappedFields (B4:
+// problems are reported in the results Sheet, never silently dropped).
+function mapTmiCsv(rows, state) {
+  var result = { updates: {}, matched: [], unmatchedClubs: [],
+                 unmappedFields: [], skippedRows: [] };
+  if (!Array.isArray(rows) || rows.length === 0) {
+    result.skippedRows.push({ rowIndex: -1, reason: "empty CSV" });
+    return result;
+  }
+
+  // TMI exports carry preamble lines: scan the first 5 rows for the header.
+  var headerIdx = -1;
+  for (var r = 0; r < Math.min(rows.length, 5); r++) {
+    if ((rows[r] || []).some(function (c) { return normalizeHeader(c) === "club name"; })) {
+      headerIdx = r;
+      break;
+    }
+  }
+  if (headerIdx === -1) {
+    result.skippedRows.push({ rowIndex: -1, reason: "no Club Name header row found in first 5 rows" });
+    return result;
+  }
+
+  var headers = rows[headerIdx];
+  var cols = {}; // field key -> column index (first header claiming a key wins)
+  headers.forEach(function (h, idx) {
+    var norm = normalizeHeader(h);
+    for (var p = 0; p < TMI_FIELD_PATTERNS.length; p++) {
+      if (TMI_FIELD_PATTERNS[p][1](norm)) {
+        if (!(TMI_FIELD_PATTERNS[p][0] in cols)) cols[TMI_FIELD_PATTERNS[p][0]] = idx;
+        return;
+      }
+    }
+    result.unmappedFields.push(String(h));
+  });
+
+  // Cell readers (throw inside the per-row try/catch on unparseable cells).
+  function numAt(row, key) {
+    if (!(key in cols)) return 0;
+    var s = String(row[cols[key]] === undefined ? "" : row[cols[key]]).trim();
+    if (s === "") return 0;
+    var n = Number(s);
+    if (isNaN(n)) throw new Error("unparseable " + key + " cell: " + s);
+    return n;
+  }
+  function flagAt(row, key) {
+    if (!(key in cols)) return 0;
+    var s = String(row[cols[key]] === undefined ? "" : row[cols[key]]).trim();
+    if (s === "") return 0;
+    var n = Number(s);
+    if (!isNaN(n)) return n > 0 ? 1 : 0;
+    return /^(y|on|true|met)/i.test(s) ? 1 : 0; // e.g. "Yes", "On Time"
+  }
+
+  var clubs = state.config.clubs;
+
+  rows.forEach(function (row, idx) {
+    if (idx <= headerIdx) return;
+    try {
+      if (row.length !== headers.length) {
+        result.skippedRows.push({ rowIndex: idx, reason: "column count mismatch (" + row.length + " of " + headers.length + ")" });
+        return;
+      }
+
+      var csvName = "clubName" in cols ? String(row[cols.clubName]).trim() : "";
+      var csvNum = "clubNumber" in cols ? normalizeClubNumber(row[cols.clubNumber]) : "";
+
+      // Club number first (skipped when state number is null or cell is
+      // empty/0), normalized name second.
+      var club = null;
+      if (csvNum !== "") {
+        club = clubs.filter(function (c) {
+          return c.clubNumber !== null && normalizeClubNumber(c.clubNumber) === csvNum;
+        })[0] || null;
+      }
+      if (!club && csvName !== "") {
+        var normName = normalizeClubName(csvName);
+        club = clubs.filter(function (c) {
+          return normalizeClubName(c.name) === normName;
+        })[0] || null;
+      }
+      if (!club) {
+        result.unmatchedClubs.push(csvName !== "" ? csvName : "(row " + idx + ": no club name)");
+        return;
+      }
+
+      var l1 = numAt(row, "l1");
+      var l2 = numAt(row, "l2");
+      var addL2 = numAt(row, "addL2");
+      var l3 = numAt(row, "l3");
+      var l4 = numAt(row, "l4");
+      var addL4 = numAt(row, "addL4");
+      var newM = numAt(row, "newMembers");
+      var addNew = numAt(row, "addNew");
+      var cot1 = numAt(row, "cot1");
+      var cot2 = numAt(row, "cot2");
+      var duesOct = flagAt(row, "duesOct");
+      var duesApr = flagAt(row, "duesApr");
+      var officerList = flagAt(row, "officerList");
+
+      // Workbook G1-G10 thresholds — goals derived here, never read from
+      // the export's own "Goals Met" column.
+      var goals = [
+        l1 >= 4 ? 1 : 0,                            // G1: 4 Level 1s
+        l2 >= 2 ? 1 : 0,                            // G2: 2 Level 2s
+        addL2 >= 2 ? 1 : 0,                         // G3: 2 more L2s
+        l3 >= 2 ? 1 : 0,                            // G4: 2 Level 3s
+        l4 >= 1 ? 1 : 0,                            // G5: 1 L4/L5/DTM
+        addL4 >= 1 ? 1 : 0,                         // G6: 1 more L4+
+        newM >= 4 ? 1 : 0,                          // G7: 4 new members
+        addNew >= 4 ? 1 : 0,                        // G8: 4 more new
+        (cot1 >= 4 && cot2 >= 4) ? 1 : 0,           // G9: both COT rounds >= 4
+        ((duesOct || duesApr) && officerList) ? 1 : 0 // G10: dues AND officer list
+      ];
+
+      var distCell = "distinguished" in cols ? String(row[cols.distinguished]).trim() : "";
+      var distinguished = /^p/i.test(distCell) ? "P"
+                        : /^s/i.test(distCell) ? "S"
+                        : /^d/i.test(distCell) ? "D"
+                        : "";
+
+      function clamp500(n) { return Math.min(500, Math.max(0, Math.round(n))); }
+
+      result.updates[club.id] = {
+        base: clamp500(numAt(row, "base")),
+        current: clamp500(numAt(row, "current")),
+        goals: goals,
+        distinguished: distinguished,
+        duesOct: duesOct,
+        duesApr: duesApr,
+        officerList: officerList,
+        cotRounds: (cot1 >= 4 ? 1 : 0) + (cot2 >= 4 ? 1 : 0)
+      };
+      result.matched.push(club.id);
+    } catch (e) {
+      // Threat T-03-01: malformed rows are reported, never thrown.
+      result.skippedRows.push({ rowIndex: idx, reason: String(e && e.message ? e.message : e) });
+    }
+  });
+
+  return result;
+}
+
+// Apply mapped per-club patches: returns a NEW tmi slice (input state not
+// mutated) plus a fresh ISO sync stamp.
+function applyTmiUpdates(state, updates) {
+  var tmi = {};
+  Object.keys(state.tmi).forEach(function (id) {
+    var merged = {};
+    Object.keys(state.tmi[id]).forEach(function (k) { merged[k] = state.tmi[id][k]; });
+    var patch = updates && updates[id];
+    if (patch) {
+      Object.keys(patch).forEach(function (k) { merged[k] = patch[k]; });
+    }
+    if (Array.isArray(merged.goals)) merged.goals = merged.goals.slice();
+    tmi[id] = merged;
+  });
+  return { tmi: tmi, lastTmiSync: new Date().toISOString() };
+}
+
 window.A4 = {
   DEFAULT_STATE: DEFAULT_STATE,
   loadState: loadState,
@@ -698,14 +999,17 @@ window.A4 = {
   computeScores: computeScores,
   movementVs: movementVs,
   areaTotals: areaTotals,
-  saveSnapshot: saveSnapshot
+  saveSnapshot: saveSnapshot,
+  parseCsv: parseCsv,
+  mapTmiCsv: mapTmiCsv,
+  applyTmiUpdates: applyTmiUpdates
 };
 
 // === UI ===
 
-function showToast(msg) {
+function showToast(msg, variant) {
   var el = document.createElement("div");
-  el.className = "toast";
+  el.className = "toast" + (variant === "error" ? " toast-error" : "");
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(function () { el.remove(); }, 4000);
@@ -1058,7 +1362,22 @@ function renderTmi(main, state) {
     '<h2 class="screen-title">TMI Data</h2>' +
     '<section class="form-card sync-panel">' +
       '<div class="sync-stamp">' + esc(syncStampText(state)) + '</div>' +
-      '<div data-sync-actions></div>' +
+      '<div class="sync-actions">' +
+        '<button type="button" class="btn-primary" data-tmi-refresh>Refresh from TMI</button>' +
+        '<button type="button" class="btn-secondary" data-tmi-upload-toggle>Upload CSV…</button>' +
+      '</div>' +
+      '<div class="file-drop' + (fileDropOpen ? " open" : "") + '" data-file-drop>' +
+        '<ol class="file-drop-steps">' +
+          '<li>Open dashboards.toastmasters.org</li>' +
+          '<li>Select District 90 → Club Performance</li>' +
+          '<li>Export CSV</li>' +
+          '<li>Drop the file below (or tap to choose it)</li>' +
+        '</ol>' +
+        '<label class="file-drop-zone" data-drop-zone>' +
+          '<span>Drop the Club Performance CSV here, or tap to choose a file</span>' +
+          '<input type="file" accept=".csv" data-csv-input>' +
+        '</label>' +
+      '</div>' +
     '</section>' +
     clubPickerHtml(state) +
     '<section class="form-card">' +
@@ -1115,8 +1434,148 @@ function renderTmi(main, state) {
   });
 }
 
-// Placeholder filled by Task 2 (Refresh from TMI + FileDrop wiring).
-function bindTmiSyncPanel(main, state) {} // eslint-disable-line no-unused-vars
+// ---- TMI CSV ingestion wiring (fetch + FileDrop share one pipeline) ----
+
+// UI-local: FileDrop visibility (auto-expanded on fetch failure).
+var fileDropOpen = false;
+
+// B4 URL built from state config.
+function tmiCsvUrl(state) {
+  var py = state.config.programYear;
+  return "https://dashboards.toastmasters.org/" + py +
+    "/export.aspx?type=CSV&report=clubperformance~" + state.config.district +
+    "~~~" + py;
+}
+
+// Never a dead end: error Toast + auto-expanded FileDrop with instructions.
+function ingestFailure(msg) {
+  showToast(msg, "error");
+  if (!fileDropOpen) {
+    fileDropOpen = true;
+    render();
+  }
+}
+
+// Single shared pipeline for both fetch success and file upload.
+function runIngestPipeline(text) {
+  try {
+    var mapping = mapTmiCsv(parseCsv(text), state);
+    openTmiResultsSheet(mapping);
+  } catch (e) {
+    ingestFailure("Could not read that CSV. Export it again and retry.");
+  }
+}
+
+function handleCsvFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function () { runIngestPipeline(String(reader.result)); };
+  reader.onerror = function () {
+    ingestFailure("Could not read that file. Try choosing it again.");
+  };
+  reader.readAsText(file);
+}
+
+// Results Sheet gates every apply: updated clubs (changed-field counts),
+// unmatched clubs, unmapped headers, skipped rows. All CSV-derived text is
+// untrusted and escaped (threat T-03-02).
+function openTmiResultsSheet(mapping) {
+  var clubsById = {};
+  state.config.clubs.forEach(function (c) { clubsById[c.id] = c; });
+
+  var updatedIds = Object.keys(mapping.updates);
+  var updatedHtml = updatedIds.length
+    ? updatedIds.map(function (id) {
+        var patch = mapping.updates[id];
+        var cur = state.tmi[id];
+        var changed = Object.keys(patch).filter(function (k) {
+          return JSON.stringify(patch[k]) !== JSON.stringify(cur[k]);
+        });
+        return '<div class="sheet-row"><span>' + esc(clubsById[id].name) + '</span>' +
+          '<span>' + (changed.length
+            ? changed.length + " changed: " + esc(changed.join(", "))
+            : "no changes") + '</span></div>';
+      }).join("")
+    : '<div class="sheet-row"><span>No Area 4 clubs found in that CSV.</span></div>';
+
+  var unmatchedHtml = mapping.unmatchedClubs.length
+    ? '<p class="sheet-label">Not Area 4 — ignored (' + mapping.unmatchedClubs.length + ')</p>' +
+      mapping.unmatchedClubs.map(function (n) {
+        return '<div class="sheet-row"><span>' + esc(n) + '</span></div>';
+      }).join("")
+    : "";
+
+  var unmappedHtml = mapping.unmappedFields.length
+    ? '<p class="sheet-label">Headers not used: ' + esc(mapping.unmappedFields.join(", ")) + '</p>'
+    : "";
+
+  var skippedHtml = mapping.skippedRows.length
+    ? '<p class="sheet-label">Skipped rows: ' + mapping.skippedRows.length +
+      ' (' + esc(mapping.skippedRows.map(function (sk) { return sk.reason; }).join("; ")) + ')</p>'
+    : "";
+
+  openSheet({
+    title: "TMI import preview",
+    bodyHtml:
+      '<p class="sheet-label">Clubs to update (' + updatedIds.length + ')</p>' +
+      updatedHtml + unmatchedHtml + unmappedHtml + skippedHtml,
+    confirmLabel: "Apply",
+    onConfirm: function () {
+      if (!updatedIds.length) {
+        showToast("Nothing to apply from that CSV.", "error");
+        return; // close without state changes
+      }
+      update(function (s) {
+        var applied = applyTmiUpdates(s, mapping.updates);
+        s.tmi = applied.tmi;
+        s.lastTmiSync = applied.lastTmiSync;
+      });
+      showToast("TMI data applied to " + updatedIds.length +
+        " club" + (updatedIds.length === 1 ? "" : "s"));
+    }
+  });
+}
+
+function bindTmiSyncPanel(main, state) {
+  var refresh = main.querySelector("[data-tmi-refresh]");
+  refresh.addEventListener("click", function () {
+    refresh.disabled = true;
+    fetch(tmiCsvUrl(state)).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.text();
+    }).then(function (text) {
+      runIngestPipeline(text);
+    }).catch(function () {
+      // CORS is the expected failure from a static page (design B4).
+      ingestFailure("TMI fetch failed (browsers block this cross-site request). Upload the CSV instead — steps below.");
+    }).finally(function () {
+      refresh.disabled = false;
+    });
+  });
+
+  main.querySelector("[data-tmi-upload-toggle]").addEventListener("click", function () {
+    fileDropOpen = !fileDropOpen;
+    render();
+  });
+
+  var zone = main.querySelector("[data-drop-zone]");
+  var input = zone.querySelector("[data-csv-input]");
+  input.addEventListener("change", function () {
+    handleCsvFile(input.files && input.files[0]);
+  });
+  zone.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    zone.classList.add("drag");
+  });
+  zone.addEventListener("dragleave", function () {
+    zone.classList.remove("drag");
+  });
+  zone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    zone.classList.remove("drag");
+    handleCsvFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+}
 
 function renderManual(main, state) {
   main.innerHTML = screenStub("Manual Entry", "Awards and club health entry arrives in Phase 3.");
