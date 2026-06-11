@@ -3,10 +3,10 @@ gsd_state_version: '1.0'
 status: executing
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  completed_phases: 1
+  total_plans: 2
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -16,33 +16,34 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Area Director completes the full weekly update ritual (TMI CSV in → minutes data in → snapshot saved → WhatsApp-shareable leaderboard) on a phone, with scores matching the Excel workbook exactly.
-**Current focus:** Phase 1 — Core: skeleton, state, scoring engine
+**Current focus:** Phase 2 — Leaderboard, snapshots, movement
 
 ## Current Position
 
-Phase: 1 of 4 (Core: skeleton, state, scoring engine)
+Phase: 2 of 4 (Leaderboard, snapshots, movement)
 Plan: 1 of 1 in current phase — EXECUTED (awaiting orchestrator verification before roadmap check-off)
-Status: Phase 1 executed — all 3 tasks committed, tests.html suite 32/32 green (headless node run)
-Last activity: 2026-06-11 — Executed 01-01-PLAN.md: app shell + tokens (1e1ca78), state/seed/persistence (a7aca83), scoring engine TDD RED (33dd839) → GREEN (c3b2b13); SUMMARY created
+Status: Phase 2 executed — both tasks committed, tests.html suite 41/41 green (headless node run)
+Last activity: 2026-06-11 — Executed 02-01-PLAN.md: leaderboard with club cards/breakdowns/callouts (62c3947), weekly snapshots with rank movement + reusable Sheet (5bf5ab8); SUMMARY created
 
-Progress: [██░░░░░░░░] 25%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 9 min
-- Total execution time: 0.15 hours
+- Total plans completed: 2
+- Average duration: 7 min
+- Total execution time: 0.23 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-core | 1 | 9 min | 9 min |
+| 02-leaderboard | 1 | 5 min | 5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (9 min)
-- Trend: -
+- Last 5 plans: 01-01 (9 min), 02-01 (5 min)
+- Trend: faster
 
 *Updated after each plan completion*
 
@@ -63,6 +64,13 @@ Execution decisions (01-01, 2026-06-11):
 - tests.html assertion set wrapped in `// === CASES ===` / `// === END CASES ===` markers so the identical cases run headlessly in node (no browser CLI available)
 - Screen renderers take `(mainEl, state)` per 01-core-phase-design.md dispatcher signature
 
+Execution decisions (02-01, 2026-06-11):
+
+- Medal styling rule: gold/silver/bronze applied only when the whole (possibly tied) rank group fits inside the top three positions — seed four-way rank-3 tie renders neutral badges (matches plan verification); no-tie boards still medal ranks 1/2/3
+- Sheet contract locked for phases 3-4: `openSheet({title, bodyHtml, confirmLabel, onConfirm})`; `onConfirm(sheetEl)` returning `false` keeps the sheet open (validation hook); scrim/Cancel dismiss without state writes
+- Structural helper tokens `--border-thin: 1px` and `--duration-fast: 200ms` added inside `:root` so all component CSS stays `var(--token)`-only
+- Snapshot date built from getFullYear/getMonth/getDate (local time), never toISOString (AEST off-by-one)
+
 ### Pending Todos
 
 None yet.
@@ -80,5 +88,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-06-11
-Stopped at: Completed 01-01-PLAN.md (Phase 1 executed; orchestrator verification + roadmap check-off pending)
+Stopped at: Completed 02-01-PLAN.md (Phase 2 executed; orchestrator verification + roadmap check-off pending)
 Resume file: None
