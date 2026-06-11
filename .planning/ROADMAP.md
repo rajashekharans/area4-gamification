@@ -12,7 +12,7 @@ Build a single-file HTML leaderboard app for Toastmasters Area 4 in four depende
 
 - [x] Phase 1: Core: skeleton, state, scoring engine — App shell + tokens, persisted seed state, workbook-parity scoring with tests.html green
 - [x] Phase 2: Leaderboard, snapshots, movement — Ranked club cards with breakdowns/callouts, manual weekly snapshots, movement deltas
-- [ ] Phase 3: Data ingestion: TMI + manual entry — TMI fields screen, CSV fetch/upload with fuzzy mapping, awards/health entry + minutes extractor
+- [x] Phase 3: Data ingestion: TMI + manual entry — TMI fields screen, CSV fetch/upload with fuzzy mapping, awards/health entry + minutes extractor
 - [ ] Phase 4: Trends, settings, backup, polish — Trends chart with fallback, weight/club settings, export/import, mobile polish + README
 
 ## Phase Details
