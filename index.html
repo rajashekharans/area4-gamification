@@ -226,7 +226,7 @@ main#screen {
   transition: max-height var(--duration-fast) ease;
 }
 .club-card.expanded .breakdown {
-  max-height: calc(var(--space-6) * 12);
+  max-height: calc(var(--space-6) * 18);
 }
 .bd-row {
   display: flex;
@@ -237,6 +237,32 @@ main#screen {
 }
 .bd-row.zero { color: var(--color-text-muted); }
 .bd-row.bd-total { font-weight: 700; }
+.progress-box {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+}
+.progress-title {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+.progress-line,
+.progress-muted {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+.progress-detail {
+  margin-top: var(--space-4);
+}
+.progress-breakdown {
+  max-height: none;
+}
+.history-row.compact {
+  align-items: flex-start;
+}
 
 /* Buttons */
 .btn-primary,
@@ -1486,6 +1512,28 @@ function movementLine(mv) {
   return '<div class="movement flat">— no change</div>';
 }
 
+function rankDeltaText(delta) {
+  if (delta === null) return "rank —";
+  if (delta > 0) return "rank up " + delta;
+  if (delta < 0) return "rank down " + Math.abs(delta);
+  return "rank unchanged";
+}
+
+function progressSummaryHtml(progress) {
+  if (!progress.snapshots.length) {
+    return '<div class="progress-box"><div class="progress-title">Progress</div>' +
+      '<div class="progress-muted">Refresh TMI or save a snapshot to start tracking progress.</div></div>';
+  }
+  var recent = progress.recent.count >= 2
+    ? '<div class="progress-line">Recent: ' + signed(progress.recent.scoreDelta) +
+      ' over ' + progress.recent.count + ' snapshots · ' + rankDeltaText(progress.recent.rankDelta) + '</div>'
+    : '<div class="progress-line">Recent: add one more snapshot for trend direction</div>';
+  return '<div class="progress-box"><div class="progress-title">Progress</div>' +
+    '<div class="progress-line">Latest: ' + signed(progress.latest.scoreDelta) +
+      ' · ' + rankDeltaText(progress.latest.rankDelta) + '</div>' +
+    recent + '</div>';
+}
+
 // Medal styling for the "top-3 cards": a (possibly tied) rank group is medalled
 // only when the whole group fits inside the top three positions — so a four-way
 // tie at rank 3 renders neutral badges (verification: seed state).
@@ -1534,6 +1582,7 @@ function renderLeaderboard(main, state) {
     var mv = movement[club.id];
     var medal = medalClass(score.rank, scores);
     var expanded = expandedClubId === club.id;
+    var progress = clubProgress(state, club.id, scores);
 
     var rankChip = (mv.rankDelta !== null && mv.rankDelta !== 0)
       ? '<span class="rank-chip ' + (mv.rankDelta > 0 ? "up" : "down") + '">' +
@@ -1558,7 +1607,7 @@ function renderLeaderboard(main, state) {
         '</div>' +
         '<div class="club-total">' + score.total + '</div>' +
       '</div>' +
-      '<div class="breakdown">' + breakdownRows + '</div>' +
+      '<div class="breakdown">' + breakdownRows + progressSummaryHtml(progress) + '</div>' +
     '</article>';
   }).join("");
 
@@ -2131,12 +2180,67 @@ var TREND_PALETTE_TOKENS = [
 // UI-local Chart.js instance: destroyed before every rebuild so repeated
 // update()/tab re-renders never leak canvases (phase design).
 var trendChart = null;
+var selectedTrendClubId = null;
+
+function ensureTrendClub(state) {
+  if (!state.config.clubs.some(function (c) { return c.id === selectedTrendClubId; })) {
+    selectedTrendClubId = state.config.clubs[0].id;
+  }
+  return selectedTrendClubId;
+}
+
+function trendClubPickerHtml(state) {
+  return '<div class="club-picker">' + state.config.clubs.map(function (club) {
+    return '<button type="button" class="picker-chip' +
+      (club.id === selectedTrendClubId ? " active" : "") + '" data-trend-pick="' +
+      esc(club.id) + '">' + esc(shortClubName(club.name)) + '</button>';
+  }).join("") + '</div>';
+}
 
 // Compact display label for tight rows/headers: trailing
 // "Toastmasters"/"Club" words dropped (display-only; CORE matching uses
 // its own normalizeClubName).
 function shortClubName(name) {
   return String(name).replace(/\s+(toastmasters|club)\s*$/i, "");
+}
+
+function clubProgressDetailHtml(state, scores) {
+  var clubId = ensureTrendClub(state);
+  var club = state.config.clubs.filter(function (c) { return c.id === clubId; })[0];
+  var progress = clubProgress(state, clubId, scores);
+  var current = scores[clubId];
+
+  var categoryRows = CATEGORY_LABELS.map(function (cat) {
+    return '<div class="bd-row">' +
+      '<span>' + cat[1] + '</span><span>' + signed(progress.recent.categoryDelta[cat[0]]) + '</span></div>';
+  }).join("");
+
+  var historyRows = progress.snapshots.slice().reverse().map(function (snap) {
+    var sc = snap.scores[clubId];
+    return '<div class="history-row compact">' +
+      '<div class="history-info"><div class="history-date">' + esc(snap.date) + '</div>' +
+      '<div class="history-clubs">Rank ' + sc.rank + ' · ' +
+        CATEGORY_LABELS.map(function (cat) { return cat[1] + ' ' + sc.breakdown[cat[0]]; }).join(' · ') +
+      '</div></div><div class="history-total">' + sc.total + '</div></div>';
+  }).join("");
+
+  if (!historyRows) {
+    historyRows = '<div class="empty-card">No snapshots for this club yet.</div>';
+  }
+
+  return '<section class="form-card progress-detail">' +
+    '<h3 class="form-section-title">Club progress</h3>' +
+    trendClubPickerHtml(state) +
+    '<div class="progress-box">' +
+      '<div class="progress-title">' + esc(club.name) + '</div>' +
+      '<div class="progress-line">Current: ' + current.total + ' points · rank ' + current.rank + '</div>' +
+      '<div class="progress-line">Latest: ' + signed(progress.latest.scoreDelta) + ' · ' + rankDeltaText(progress.latest.rankDelta) + '</div>' +
+      '<div class="progress-line">Recent: ' + signed(progress.recent.scoreDelta) + ' over ' + progress.recent.count + ' snapshots · ' + rankDeltaText(progress.recent.rankDelta) + '</div>' +
+    '</div>' +
+    '<div class="breakdown progress-breakdown">' + categoryRows + '</div>' +
+    '<h3 class="form-section-title">Snapshot history</h3>' +
+    historyRows +
+  '</section>';
 }
 
 function renderTrends(main, state) {
@@ -2148,10 +2252,11 @@ function renderTrends(main, state) {
 
   var snaps = state.snapshots;
   var clubs = state.config.clubs;
+  var scores = computeScores(state);
 
   if (snaps.length === 0) {
     main.innerHTML = '<h2 class="screen-title">Trends</h2>' +
-      '<div class="empty-card">No snapshots yet — save one from the Leaderboard</div>';
+      '<div class="empty-card">No snapshots yet — refresh TMI or save one from the Leaderboard</div>';
     return;
   }
 
@@ -2198,7 +2303,8 @@ function renderTrends(main, state) {
     '</div>';
   }).join("");
 
-  main.innerHTML = '<h2 class="screen-title">Trends</h2>' + chartCardHtml + historyHtml;
+  main.innerHTML = '<h2 class="screen-title">Trends</h2>' + chartCardHtml +
+    clubProgressDetailHtml(state, scores) + historyHtml;
 
   if (hasChart) {
     // Series colors + legend size read from the live tokens at render time.
@@ -2258,6 +2364,13 @@ function renderTrends(main, state) {
           showToast("Snapshot " + date + " deleted");
         }
       });
+    });
+  });
+
+  main.querySelectorAll("[data-trend-pick]").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      selectedTrendClubId = chip.dataset.trendPick;
+      render();
     });
   });
 }
