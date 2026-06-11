@@ -317,6 +317,157 @@ main#screen {
   font-size: var(--font-size-sm);
   z-index: 20;
 }
+.toast.toast-error {
+  border-left: var(--space-1) solid var(--color-error);
+  color: var(--color-error);
+}
+
+/* ClubPicker — horizontal scrollable club chips (entry screens) */
+.club-picker {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-1);
+}
+.picker-chip {
+  flex: none;
+  /* B5 touch-target minimum from spacing tokens */
+  min-height: calc(var(--space-6) + var(--space-3));
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+}
+.picker-chip.active {
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
+}
+
+/* Form card sections (entry screens) */
+.form-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.form-section-title {
+  margin: var(--space-4) 0 var(--space-3);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+.form-section-title:first-child { margin-top: 0; }
+
+/* FormRow — label + control grid */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.form-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.num-input {
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  width: calc(var(--space-6) * 2.5);
+  /* B5 touch-target minimum */
+  min-height: calc(var(--space-6) + var(--space-3));
+  padding: var(--space-2);
+  text-align: right;
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+}
+.input-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.input-suffix .suffix {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* NumberStepper — − / value / + */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.step-btn {
+  /* square B5 touch target */
+  width: calc(var(--space-6) + var(--space-3));
+  height: calc(var(--space-6) + var(--space-3));
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-primary);
+  font-family: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  cursor: pointer;
+}
+.step-value {
+  width: calc(var(--space-6) + var(--space-5));
+  min-height: calc(var(--space-6) + var(--space-3));
+  text-align: center;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1);
+}
+
+/* ToggleChip — on/off pill (accent variant for distinguished radio chips) */
+.toggle-chip {
+  min-height: calc(var(--space-6) + var(--space-3));
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: var(--border-thin) solid var(--color-gray);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+.toggle-chip.on {
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-color: var(--color-primary);
+}
+.toggle-chip.accent.on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.chip-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* Sync panel (TMI screen) */
+.sync-stamp {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
 </style>
 </head>
 <body>
@@ -788,9 +939,184 @@ function openSnapshotSheet(state, scores, clubs) {
   });
 }
 
-function renderTmi(main, state) {
-  main.innerHTML = screenStub("TMI Data", "TMI dashboard data entry arrives in Phase 3.");
+// ---- Form kit (A4 Kit): ClubPicker / FormRow / NumberStepper / ToggleChip ----
+// Shared by the TMI and Manual screens (Phase 3).
+
+// UI-local (NOT persisted): ClubPicker selection survives re-renders and is
+// shared by the TMI and Manual screens. Defaults to the first club.
+var selectedClubId = null;
+
+function ensureSelectedClub(state) {
+  var clubs = state.config.clubs;
+  if (!clubs.some(function (c) { return c.id === selectedClubId; })) {
+    selectedClubId = clubs[0].id;
+  }
+  return selectedClubId;
 }
+
+function clubPickerHtml(state) {
+  return '<div class="club-picker">' + state.config.clubs.map(function (club) {
+    return '<button type="button" class="picker-chip' +
+      (club.id === selectedClubId ? " active" : "") + '" data-pick="' +
+      esc(club.id) + '">' + esc(club.name) + '</button>';
+  }).join("") + '</div>';
+}
+
+function bindClubPicker(main) {
+  main.querySelectorAll("[data-pick]").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      selectedClubId = chip.dataset.pick;
+      render();
+    });
+  });
+}
+
+function formRow(label, controlHtml) {
+  return '<div class="form-row"><span class="form-label">' + esc(label) +
+    '</span>' + controlHtml + '</div>';
+}
+
+function chipHtml(label, on, key, accent) {
+  return '<button type="button" class="toggle-chip' + (on ? " on" : "") +
+    (accent ? " accent" : "") + '" data-chip="' + esc(key) +
+    '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(label) + '</button>';
+}
+
+function stepperHtml(opts) {
+  return '<div class="stepper" data-stepper="' + esc(opts.key) +
+      '" data-min="' + opts.min + '" data-max="' + opts.max + '">' +
+    '<button type="button" class="step-btn" data-step="-1" aria-label="Decrease">−</button>' +
+    '<input class="step-value" inputmode="numeric" value="' + opts.value +
+      '" aria-label="' + esc(opts.label || opts.key) + '">' +
+    '<button type="button" class="step-btn" data-step="1" aria-label="Increase">+</button>' +
+  '</div>';
+}
+
+// Clamp before any state write (design Error handling).
+function clampNum(v, min, max) {
+  var n = Math.round(Number(v));
+  if (!isFinite(n)) n = min;
+  return Math.min(max, Math.max(min, n));
+}
+
+// Stepper buttons commit on click; the inline value input commits on change
+// (not input) so re-renders never fight the phone keyboard mid-typing.
+function bindSteppers(main, onCommit) {
+  main.querySelectorAll("[data-stepper]").forEach(function (el) {
+    var min = Number(el.dataset.min);
+    var max = Number(el.dataset.max);
+    var key = el.dataset.stepper;
+    var input = el.querySelector(".step-value");
+    function commit(v) { onCommit(key, clampNum(v, min, max)); }
+    el.querySelectorAll("[data-step]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        commit(Number(input.value) + Number(btn.dataset.step));
+      });
+    });
+    input.addEventListener("change", function () { commit(input.value); });
+  });
+}
+
+// ---- TMI Data screen ----
+
+// Workbook G1-G10 short labels (single source of truth with the CSV
+// thresholds documented in the Phase 3 plan).
+var GOAL_LABELS = [
+  "4 Level 1s", "2 Level 2s", "2 more L2s", "2 Level 3s", "1 L4/L5/DTM",
+  "1 more L4+", "4 new members", "4 more new", "Officers trained", "Dues + officer list"
+];
+
+var DIST_OPTIONS = [
+  ["", "None"], ["D", "Distinguished"], ["S", "Select"], ["P", "President's"]
+];
+
+function syncStampText(state) {
+  if (!state.lastTmiSync) return "Never synced";
+  var d = new Date(state.lastTmiSync);
+  return "Last synced " + (isNaN(d.getTime()) ? state.lastTmiSync : d.toLocaleString());
+}
+
+function renderTmi(main, state) {
+  ensureSelectedClub(state);
+  var t = state.tmi[selectedClubId];
+
+  var goalChips = GOAL_LABELS.map(function (label, i) {
+    return chipHtml("G" + (i + 1) + " · " + label, t.goals[i] === 1, "goal-" + i, false);
+  }).join("");
+
+  // Radio-group behavior: exactly one of None/D/S/P on, accent variant.
+  var distChips = DIST_OPTIONS.map(function (opt) {
+    return chipHtml(opt[1], t.distinguished === opt[0], "dist-" + opt[0], true);
+  }).join("");
+
+  var flagChips =
+    chipHtml("Dues Oct", t.duesOct === 1, "flag-duesOct", false) +
+    chipHtml("Dues Apr", t.duesApr === 1, "flag-duesApr", false) +
+    chipHtml("Officer list", t.officerList === 1, "flag-officerList", false);
+
+  main.innerHTML =
+    '<h2 class="screen-title">TMI Data</h2>' +
+    '<section class="form-card sync-panel">' +
+      '<div class="sync-stamp">' + esc(syncStampText(state)) + '</div>' +
+      '<div data-sync-actions></div>' +
+    '</section>' +
+    clubPickerHtml(state) +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">Membership</h3>' +
+      formRow("Base members",
+        '<input class="num-input" inputmode="numeric" data-tmi-num="base" value="' + t.base + '" aria-label="Base members">') +
+      formRow("Current members",
+        '<input class="num-input" inputmode="numeric" data-tmi-num="current" value="' + t.current + '" aria-label="Current members">') +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">DCP goals</h3>' +
+      '<div class="chip-grid">' + goalChips + '</div>' +
+      '<h3 class="form-section-title">Distinguished status</h3>' +
+      '<div class="chip-row">' + distChips + '</div>' +
+    '</section>' +
+    '<section class="form-card">' +
+      '<h3 class="form-section-title">Admin</h3>' +
+      '<div class="chip-row">' + flagChips + '</div>' +
+      formRow("COT rounds (0–2)",
+        stepperHtml({ key: "cotRounds", value: t.cotRounds, min: 0, max: 2, label: "COT rounds" })) +
+    '</section>';
+
+  bindTmiSyncPanel(main, state);
+  bindClubPicker(main);
+
+  main.querySelectorAll("[data-tmi-num]").forEach(function (input) {
+    input.addEventListener("change", function () {
+      var field = input.dataset.tmiNum;
+      var v = clampNum(input.value, 0, 500);
+      update(function (s) { s.tmi[selectedClubId][field] = v; });
+    });
+  });
+
+  main.querySelectorAll("[data-chip]").forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      var key = chip.dataset.chip;
+      update(function (s) {
+        var rec = s.tmi[selectedClubId];
+        if (key.indexOf("goal-") === 0) {
+          var i = Number(key.slice(5));
+          rec.goals[i] = rec.goals[i] ? 0 : 1;
+        } else if (key.indexOf("dist-") === 0) {
+          rec.distinguished = key.slice(5);
+        } else if (key.indexOf("flag-") === 0) {
+          var f = key.slice(5);
+          rec[f] = rec[f] ? 0 : 1;
+        }
+      });
+    });
+  });
+
+  bindSteppers(main, function (key, v) {
+    update(function (s) { s.tmi[selectedClubId][key] = v; });
+  });
+}
+
+// Placeholder filled by Task 2 (Refresh from TMI + FileDrop wiring).
+function bindTmiSyncPanel(main, state) {} // eslint-disable-line no-unused-vars
 
 function renderManual(main, state) {
   main.innerHTML = screenStub("Manual Entry", "Awards and club health entry arrives in Phase 3.");
