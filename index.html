@@ -1864,6 +1864,18 @@ function handleCsvFile(file) {
   reader.readAsText(file);
 }
 
+function applyTmiImport(mapping, updatedIds) {
+  update(function (s) {
+    var applied = applyTmiUpdates(s, mapping.updates);
+    s.tmi = applied.tmi;
+    s.lastTmiSync = applied.lastTmiSync;
+    s.snapshots = saveSnapshot(s, localToday());
+  });
+  showToast("TMI data applied to " + updatedIds.length +
+    " club" + (updatedIds.length === 1 ? "" : "s") +
+    " and today's snapshot saved");
+}
+
 // Results Sheet gates every apply: updated clubs (changed-field counts),
 // unmatched clubs, unmapped headers, skipped rows. All CSV-derived text is
 // untrusted and escaped (threat T-03-02).
@@ -1902,25 +1914,59 @@ function openTmiResultsSheet(mapping) {
       ' (' + esc(mapping.skippedRows.map(function (sk) { return sk.reason; }).join("; ")) + ')</p>'
     : "";
 
+  var sourceHtml = "";
+  if (mapping.source) {
+    var fetched = mapping.source.fetchedAt ? new Date(mapping.source.fetchedAt) : null;
+    var stale = fetched && !isNaN(fetched.getTime()) &&
+      (Date.now() - fetched.getTime()) > 14 * 24 * 60 * 60 * 1000;
+    sourceHtml = '<p class="sheet-label">Source: District ' + esc(mapping.source.district) +
+      ', Area ' + esc(mapping.source.sourceArea) + ' now / Area ' +
+      esc(mapping.source.futureArea) + ' from July' +
+      (mapping.source.asOf ? ' · ' + esc(mapping.source.asOf) : '') +
+      (stale ? ' · data is over 14 days old' : '') + '</p>';
+  }
+
+  var missingHtml = mapping.missingAppClubs && mapping.missingAppClubs.length
+    ? '<p class="sheet-label">No generated data for app clubs: ' +
+      esc(mapping.missingAppClubs.map(function (id) {
+        return clubsById[id] ? clubsById[id].name : id;
+      }).join(", ")) + '</p>'
+    : "";
+
   openSheet({
     title: "TMI import preview",
     bodyHtml:
+      sourceHtml +
       '<p class="sheet-label">Clubs to update (' + updatedIds.length + ')</p>' +
-      updatedHtml + unmatchedHtml + unmappedHtml + skippedHtml,
+      updatedHtml + unmatchedHtml + missingHtml + unmappedHtml + skippedHtml,
     confirmLabel: "Apply",
     onConfirm: function () {
       if (!updatedIds.length) {
         showToast("Nothing to apply from that CSV.", "error");
         return; // close without state changes
       }
-      update(function (s) {
-        var applied = applyTmiUpdates(s, mapping.updates);
-        s.tmi = applied.tmi;
-        s.lastTmiSync = applied.lastTmiSync;
-      });
-      showToast("TMI data applied to " + updatedIds.length +
-        " club" + (updatedIds.length === 1 ? "" : "s"));
+      applyTmiImport(mapping, updatedIds);
     }
+  });
+}
+
+function runGeneratedTmiPipeline(payload) {
+  var mapping = mapGeneratedTmi(payload, state);
+  if (!Object.keys(mapping.updates).length) {
+    ingestFailure("No app clubs matched the generated TMI data. Upload the CSV instead.");
+    return;
+  }
+  openTmiResultsSheet(mapping);
+}
+
+function fetchGeneratedTmi() {
+  return fetch("data/tmi-area20.json", { cache: "no-store" }).then(function (res) {
+    if (!res.ok) throw new Error("Generated TMI HTTP " + res.status);
+    return res.json();
+  }).then(function (payload) {
+    var valid = validateGeneratedTmi(payload);
+    if (!valid.ok) throw new Error(valid.errors.join("; "));
+    runGeneratedTmiPipeline(payload);
   });
 }
 
@@ -1928,14 +1974,15 @@ function bindTmiSyncPanel(main, state) {
   var refresh = main.querySelector("[data-tmi-refresh]");
   refresh.addEventListener("click", function () {
     refresh.disabled = true;
-    fetch(tmiCsvUrl(state)).then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.text();
-    }).then(function (text) {
-      runIngestPipeline(text);
-    }).catch(function () {
-      // CORS is the expected failure from a static page (design B4).
-      ingestFailure("TMI fetch failed (browsers block this cross-site request). Upload the CSV instead — steps below.");
+    fetchGeneratedTmi().catch(function () {
+      return fetch(tmiCsvUrl(state)).then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      }).then(function (text) {
+        runIngestPipeline(text);
+      }).catch(function () {
+        ingestFailure("TMI fetch failed. Upload the CSV instead — steps below.");
+      });
     }).finally(function () {
       refresh.disabled = false;
     });
