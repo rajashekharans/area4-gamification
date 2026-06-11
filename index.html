@@ -619,6 +619,12 @@ main#screen {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+.file-selected {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
 /* Extract-prefill flash: yellow fading back to normal, runs once. */
 @keyframes field-flash {
   from { background-color: var(--color-yellow); }
@@ -1870,6 +1876,7 @@ function openSnapshotSheet(state, scores, clubs) {
 // UI-local (NOT persisted): ClubPicker selection survives re-renders and is
 // shared by the TMI and Manual screens. Defaults to the first club.
 var selectedClubId = null;
+var selectedMinutesFile = null;
 
 function ensureSelectedClub(state) {
   var clubs = state.config.clubs;
@@ -1890,6 +1897,7 @@ function clubPickerHtml(state) {
 function bindClubPicker(main) {
   main.querySelectorAll("[data-pick]").forEach(function (chip) {
     chip.addEventListener("click", function () {
+      if (selectedClubId !== chip.dataset.pick) selectedMinutesFile = null;
       selectedClubId = chip.dataset.pick;
       render();
     });
@@ -2374,7 +2382,7 @@ async function requestMinutesExtraction(main, button) {
   var fileEl = main.querySelector("[data-minutes-file]");
   var dateEl = main.querySelector("[data-meeting-date]");
   var text = textEl ? textEl.value.trim() : "";
-  var file = fileEl && fileEl.files ? fileEl.files[0] : null;
+  var file = selectedMinutesFile || (fileEl && fileEl.files ? fileEl.files[0] : null);
   if (!text && !file) {
     showToast("Paste minutes text or upload a minutes file.");
     return;
@@ -2407,6 +2415,7 @@ async function requestMinutesExtraction(main, button) {
       return;
     }
     openMinutesExtractionPreview(data);
+    selectedMinutesFile = null;
   } catch (err) {
     showToast("AI extraction is unavailable. Manual entry still works.", "error");
   } finally {
@@ -2454,6 +2463,9 @@ function renderManual(main, state) {
       '<textarea class="minutes-text" data-minutes placeholder="Paste meeting minutes here…"></textarea>' +
       '<label class="sheet-label">Minutes file</label>' +
       '<input class="file-input" type="file" data-minutes-file accept=".txt,.docx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">' +
+      '<div class="file-selected" data-file-selected>' +
+        (selectedMinutesFile ? 'Selected: ' + esc(selectedMinutesFile.name) : 'No file selected') +
+      '</div>' +
       '<div class="minutes-actions">' +
         '<button type="button" class="btn-accent-outline" data-extract>Extract from minutes</button>' +
       '</div>' +
@@ -2481,6 +2493,14 @@ function renderManual(main, state) {
   bindSteppers(main, function (key, v) {
     var parts = key.split(":"); // "awards:smedley" / "health:guests"
     update(function (s) { s[parts[0]][selectedClubId][parts[1]] = v; });
+  });
+
+  main.querySelector("[data-minutes-file]").addEventListener("change", function (e) {
+    selectedMinutesFile = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+    var label = main.querySelector("[data-file-selected]");
+    if (label) {
+      label.textContent = selectedMinutesFile ? "Selected: " + selectedMinutesFile.name : "No file selected";
+    }
   });
 
   main.querySelector("[data-extract]").addEventListener("click", function () {
