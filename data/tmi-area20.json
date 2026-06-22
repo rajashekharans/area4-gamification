@@ -5,8 +5,8 @@
     "sourceArea": "20",
     "futureArea": "4",
     "url": "https://dashboards.toastmasters.org/Club.aspx?id=90",
-    "fetchedAt": "2026-06-15T19:32:04.419Z",
-    "asOf": "As of 14-Jun-2026"
+    "fetchedAt": "2026-06-22T19:23:18.163Z",
+    "asOf": "As of 21-Jun-2026"
   },
   "clubs": [
     {
@@ -39,7 +39,7 @@
       "clubName": "Prospect Phoenix Toastmasters Club",
       "tmi": {
         "base": 6,
-        "current": 8,
+        "current": 9,
         "goals": [
           0,
           1,
@@ -47,12 +47,12 @@
           1,
           1,
           1,
-          0,
+          1,
           0,
           1,
           1
         ],
-        "distinguished": "",
+        "distinguished": "D",
         "duesOct": 1,
         "duesApr": 0,
         "officerList": 1,
@@ -68,7 +68,7 @@
         "goals": [
           1,
           1,
-          0,
+          1,
           0,
           1,
           1,
@@ -77,7 +77,7 @@
           1,
           1
         ],
-        "distinguished": "S",
+        "distinguished": "P",
         "duesOct": 1,
         "duesApr": 1,
         "officerList": 1,
@@ -89,7 +89,7 @@
       "clubName": "Rooty Hill Toastmasters Club",
       "tmi": {
         "base": 11,
-        "current": 9,
+        "current": 10,
         "goals": [
           1,
           1,
