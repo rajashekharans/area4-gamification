@@ -5,8 +5,8 @@
     "sourceArea": "20",
     "futureArea": "4",
     "url": "https://dashboards.toastmasters.org/Club.aspx?id=90",
-    "fetchedAt": "2026-06-22T19:23:18.163Z",
-    "asOf": "As of 21-Jun-2026"
+    "fetchedAt": "2026-06-29T18:55:00.269Z",
+    "asOf": "As of 28-Jun-2026"
   },
   "clubs": [
     {
@@ -89,7 +89,7 @@
       "clubName": "Rooty Hill Toastmasters Club",
       "tmi": {
         "base": 11,
-        "current": 10,
+        "current": 11,
         "goals": [
           1,
           1,
@@ -97,7 +97,7 @@
           1,
           1,
           1,
-          0,
+          1,
           0,
           1,
           1
